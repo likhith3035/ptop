@@ -261,6 +261,9 @@ export const dbService = {
   getProfiles(): ParticipantProfile[] {
     return db.profiles;
   },
+  getProfileById(id: string): ParticipantProfile | undefined {
+    return db.profiles.find((p) => p.id === id);
+  },
   getProfileByUserId(userId: string): ParticipantProfile | undefined {
     return db.profiles.find((p) => p.userId === userId);
   },
@@ -980,10 +983,38 @@ export const dbService = {
     }
     return undefined;
   },
-  issueCertificate(participantId: string): CertificateItem {
+  issueCertificate(participantId: string, overrides?: { fullName?: string; rollNumber?: string; branch?: string; year?: string }, forceRegenerate?: boolean): CertificateItem {
     const profile = db.profiles.find((p) => p.id === participantId);
-    const existing = db.certificates.find((c) => c.participantId === participantId);
-    if (existing) return existing;
+    const existingIdx = db.certificates.findIndex((c) => c.participantId === participantId);
+
+    // If already exists and not forcing regeneration, return existing
+    if (existingIdx >= 0 && !forceRegenerate) return db.certificates[existingIdx];
+
+    // Use override values if provided, otherwise fall back to profile data
+    const name = overrides?.fullName || profile?.fullName || "Participant";
+    const roll = overrides?.rollNumber || profile?.rollNumber;
+    const branch = overrides?.branch || profile?.branch;
+    const email = profile?.email;
+
+    // If regenerating, reuse the existing cert ID & number, update data
+    if (existingIdx >= 0 && forceRegenerate) {
+      const existing = db.certificates[existingIdx];
+      existing.participantName = name;
+      existing.rollNumber = roll;
+      existing.branch = branch;
+      existing.email = email;
+
+      // Sync to Supabase (no need to re-insert, just update)
+      const sb = getSupabaseAdmin();
+      if (sb) {
+        sb.from("certificates").update({
+          is_published: true,
+        }).eq("id", existing.id).then(({ error }: { error: unknown }) => {
+          if (error) console.error("Supabase cert update error:", error);
+        });
+      }
+      return existing;
+    }
 
     const certId = crypto.randomUUID();
     const certSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -994,10 +1025,10 @@ export const dbService = {
       id: certId,
       certificateNumber: certNumber,
       participantId,
-      participantName: profile ? profile.fullName : "Participant",
-      rollNumber: profile?.rollNumber,
-      branch: profile?.branch,
-      email: profile?.email,
+      participantName: name,
+      rollNumber: roll,
+      branch,
+      email,
       eventName: db.eventConfig.name,
       issueDate: "11 April 2026",
       verificationCode,
@@ -1008,19 +1039,145 @@ export const dbService = {
 
     const sb = getSupabaseAdmin();
     if (sb) {
-      sb.from("certificates").insert({
-        id: certId,
-        certificate_number: certNumber,
-        participant_id: participantId,
-        verification_code: verificationCode,
-        is_published: true,
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.error("Supabase cert sync error:", error);
-      });
+      (async () => {
+        try {
+          const { data: existingProf } = await sb
+            .from("participant_profiles")
+            .select("id")
+            .eq("id", participantId)
+            .maybeSingle();
+
+          if (!existingProf && profile) {
+            await sb.from("participant_profiles").insert({
+              id: participantId,
+              user_id: null,
+              full_name: profile.fullName,
+              email: profile.email || `participant_${participantId.slice(0, 8)}@nbkrist.ac.in`,
+              mobile: profile.mobile || "9999999999",
+              roll_number: profile.rollNumber,
+              year: profile.year || "3rd Year",
+              branch: profile.branch || "CSE",
+              section: profile.section || "A",
+              is_iste_member: Boolean(profile.isIsteMember),
+              has_laptop: true,
+            });
+          }
+
+          const { error: certErr } = await sb.from("certificates").insert({
+            id: certId,
+            certificate_number: certNumber,
+            participant_id: participantId,
+            verification_code: verificationCode,
+            is_published: true,
+          });
+          if (certErr) console.error("Supabase cert sync error:", certErr);
+        } catch (err) {
+          console.error("Supabase cert sync exception:", err);
+        }
+      })();
     }
 
     return cert;
   },
+
+  // Update an existing profile's details and optionally issue/regenerate certificate
+  async updateProfileAndIssueCert(
+    participantId: string,
+    updates: { fullName?: string; rollNumber?: string; branch?: string; year?: string },
+    issueCert: boolean = true
+  ): Promise<{ profile: ParticipantProfile; certificate?: CertificateItem }> {
+    const idx = db.profiles.findIndex((p) => p.id === participantId);
+    if (idx < 0) throw new Error("Profile not found");
+
+    const profile = db.profiles[idx];
+    if (updates.fullName) profile.fullName = updates.fullName;
+    if (updates.rollNumber) profile.rollNumber = updates.rollNumber;
+    if (updates.branch) profile.branch = updates.branch as ParticipantProfile["branch"];
+    if (updates.year) profile.year = updates.year as ParticipantProfile["year"];
+    profile.updatedAt = new Date().toISOString();
+
+    // Sync to Supabase
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      const supaUpdates: Record<string, unknown> = { updated_at: profile.updatedAt };
+      if (updates.fullName) supaUpdates.full_name = updates.fullName;
+      if (updates.rollNumber) supaUpdates.roll_number = updates.rollNumber;
+      if (updates.branch) supaUpdates.branch = updates.branch;
+      if (updates.year) supaUpdates.year = updates.year;
+
+      await sb.from("participant_profiles").update(supaUpdates).eq("id", participantId);
+    }
+
+    // Also update matching ticket display data
+    const ticket = db.tickets.find(
+      (t) => t.rollNumber.toUpperCase() === (updates.rollNumber || profile.rollNumber).toUpperCase()
+    );
+    if (ticket) {
+      if (updates.fullName) ticket.participantName = updates.fullName;
+      if (updates.rollNumber) ticket.rollNumber = updates.rollNumber;
+      if (updates.branch) ticket.branch = updates.branch;
+      if (updates.year) ticket.year = updates.year;
+    }
+
+    let certificate: CertificateItem | undefined;
+    if (issueCert) {
+      certificate = this.issueCertificate(participantId, updates, true);
+    }
+
+    return { profile, certificate };
+  },
+
+  // Add a manual/walk-in participant and issue certificate immediately
+  async addManualProfileAndIssueCert(data: {
+    fullName: string;
+    rollNumber: string;
+    branch: string;
+    year: string;
+    email?: string;
+    mobile?: string;
+    section?: string;
+  }): Promise<{ profile: ParticipantProfile; certificate: CertificateItem }> {
+    const profileId = crypto.randomUUID();
+    const profile: ParticipantProfile = {
+      id: profileId,
+      userId: crypto.randomUUID(),
+      fullName: data.fullName,
+      email: data.email || "",
+      mobile: data.mobile || "",
+      rollNumber: data.rollNumber,
+      year: data.year as ParticipantProfile["year"],
+      branch: data.branch as ParticipantProfile["branch"],
+      section: data.section || "A",
+      isIsteMember: false,
+      hasLaptop: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.profiles.push(profile);
+
+    // Sync to Supabase
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      const { error: insErr } = await sb.from("participant_profiles").insert({
+        id: profileId,
+        user_id: null,
+        full_name: data.fullName,
+        email: data.email || `manual_${profileId.slice(0, 8)}@nbkrist.ac.in`,
+        mobile: data.mobile || "0000000000",
+        roll_number: data.rollNumber,
+        year: data.year,
+        branch: data.branch,
+        section: data.section || "A",
+        is_iste_member: false,
+        has_laptop: true,
+      });
+      if (insErr) console.error("Manual profile Supabase insert error:", insErr);
+    }
+
+    const certificate = this.issueCertificate(profileId);
+    return { profile, certificate };
+  },
+
   async generateAllCertificates(): Promise<{ generated: number; certificates: CertificateItem[] }> {
     let count = 0;
     for (const p of db.profiles) {

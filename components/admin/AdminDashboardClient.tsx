@@ -36,7 +36,10 @@ import {
   Mail,
   Send,
   ExternalLink,
-  Check
+  Check,
+  Edit2,
+  UserPlus,
+  X
 } from "lucide-react";
 import { QrScanner } from "@/components/coordinator/QrScanner";
 
@@ -109,6 +112,24 @@ export function AdminDashboardClient({
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [certActionMessage, setCertActionMessage] = useState<string | null>(null);
   const [certSearch, setCertSearch] = useState("");
+
+  // Edit Modal State
+  const [editingProfile, setEditingProfile] = useState<{
+    id: string;
+    fullName: string;
+    rollNumber: string;
+    branch: string;
+    year: string;
+    email: string;
+  } | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Manual Entry State
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    fullName: "", rollNumber: "", branch: "IT", year: "2nd Year", email: "", mobile: "", section: "A"
+  });
+  const [isAddingManual, setIsAddingManual] = useState(false);
 
   // Filtered Participants
   const filteredTickets = tickets.filter((t) => {
@@ -307,6 +328,78 @@ export function AdminDashboardClient({
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Edit Profile & Issue/Regenerate Certificate
+  const handleEditSaveAndIssue = async (issueCert: boolean = true) => {
+    if (!editingProfile) return;
+    setIsSavingEdit(true);
+    setCertActionMessage(null);
+    try {
+      const res = await fetch("/api/admin/certificate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: editingProfile.id,
+          overrides: {
+            fullName: editingProfile.fullName,
+            rollNumber: editingProfile.rollNumber,
+            branch: editingProfile.branch,
+            year: editingProfile.year,
+          },
+          issueCert,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCertActionMessage(data.message);
+        if (data.certificate) {
+          setCertificates([
+            ...certificates.filter((c) => c.participantId !== editingProfile.id),
+            data.certificate,
+          ]);
+        }
+        setEditingProfile(null);
+        // Refresh certificate data
+        const certRes = await fetch("/api/admin/certificate");
+        const certData = await certRes.json();
+        if (certData.certificates) setCertificates(certData.certificates);
+      }
+    } catch (e) {
+      console.error(e);
+      setCertActionMessage("Failed to update profile.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Manual Entry — Add Walk-in Participant & Issue Certificate
+  const handleManualEntry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualForm.fullName.trim() || !manualForm.rollNumber.trim()) return;
+    setIsAddingManual(true);
+    setCertActionMessage(null);
+    try {
+      const res = await fetch("/api/admin/certificate", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(manualForm),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCertActionMessage(data.message);
+        if (data.certificate) {
+          setCertificates([...certificates, data.certificate]);
+        }
+        setManualForm({ fullName: "", rollNumber: "", branch: "IT", year: "2nd Year", email: "", mobile: "", section: "A" });
+        setShowManualEntry(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setCertActionMessage("Failed to add manual entry.");
+    } finally {
+      setIsAddingManual(false);
     }
   };
 
@@ -893,7 +986,7 @@ export function AdminDashboardClient({
 
       {/* TAB 6: CERTIFICATES & EMAIL DISPATCH */}
       {activeTab === "certificates" && (
-        <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6">
+        <div className="p-4 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6">
           
           {/* Header & Primary Actions */}
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200">
@@ -905,31 +998,39 @@ export function AdminDashboardClient({
                 </span>
                 <span className="text-xs text-slate-500">• N.B.K.R.I.S.T & ISTE</span>
               </div>
-              <h2 className="text-xl font-bold text-slate-900 mt-1">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
                 Official Certificates & Direct Email Dispatch
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Generate verified certificates with participant names, roll numbers, and official signatures. Dispatch credentials directly to registered emails.
+                Generate verified certificates with participant names, roll numbers, and official signatures. Edit incorrect data before issuing.
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setShowManualEntry(!showManualEntry)}
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-violet-500 hover:bg-violet-600 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Manual Entry</span>
+              </button>
+
               <button
                 onClick={handleGenerateAllCerts}
                 disabled={isGeneratingCerts || profiles.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
               >
                 {isGeneratingCerts ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
-                <span>Generate All Certificates with Names</span>
+                <span>Generate All</span>
               </button>
 
               <button
                 onClick={handleSendAllEmails}
                 disabled={isSendingEmails || certificates.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
               >
                 {isSendingEmails ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                <span>Send Certificates to All Mails</span>
+                <span>Email All</span>
               </button>
             </div>
           </div>
@@ -939,6 +1040,74 @@ export function AdminDashboardClient({
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span className="font-semibold">{certActionMessage}</span>
             </div>
+          )}
+
+          {/* Manual Entry Form (Collapsible) */}
+          {showManualEntry && (
+            <form onSubmit={handleManualEntry} className="p-5 rounded-2xl bg-violet-50 border border-violet-200 space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-violet-900 flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-violet-600" />
+                  Manual Certificate Entry
+                </h3>
+                <button type="button" onClick={() => setShowManualEntry(false)} className="text-violet-500 hover:text-violet-800">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-violet-700 text-[11px]">
+                For walk-in participants or late additions not registered online. This creates a profile and issues a certificate immediately.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Full Name *</label>
+                  <input type="text" required value={manualForm.fullName} onChange={(e) => setManualForm({...manualForm, fullName: e.target.value})}
+                    placeholder="e.g. Likhith Kami" className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs" />
+                </div>
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Roll Number *</label>
+                  <input type="text" required value={manualForm.rollNumber} onChange={(e) => setManualForm({...manualForm, rollNumber: e.target.value})}
+                    placeholder="e.g. 22B01A1234" className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs font-mono" />
+                </div>
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Branch *</label>
+                  <select value={manualForm.branch} onChange={(e) => setManualForm({...manualForm, branch: e.target.value})}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs">
+                    <option value="IT">IT</option>
+                    <option value="AI&DS">AI & DS</option>
+                    <option value="CSE">CSE</option>
+                    <option value="ECE">ECE</option>
+                    <option value="EEE">EEE</option>
+                    <option value="MECH">MECH</option>
+                    <option value="CIVIL">CIVIL</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Year *</label>
+                  <select value={manualForm.year} onChange={(e) => setManualForm({...manualForm, year: e.target.value})}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs">
+                    <option value="1st Year">1st Year</option>
+                    <option value="2nd Year">2nd Year</option>
+                    <option value="3rd Year">3rd Year</option>
+                    <option value="4th Year">4th Year</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Email</label>
+                  <input type="email" value={manualForm.email} onChange={(e) => setManualForm({...manualForm, email: e.target.value})}
+                    placeholder="optional" className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs" />
+                </div>
+                <div>
+                  <label className="block font-bold text-violet-800 uppercase tracking-wider mb-1">Mobile</label>
+                  <input type="tel" value={manualForm.mobile} onChange={(e) => setManualForm({...manualForm, mobile: e.target.value})}
+                    placeholder="optional" className="w-full px-3.5 py-2.5 rounded-xl border border-violet-300 bg-white text-base sm:text-xs" />
+                </div>
+              </div>
+              <button type="submit" disabled={isAddingManual || !manualForm.fullName.trim() || !manualForm.rollNumber.trim()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs shadow-xs transition-all disabled:opacity-50">
+                {isAddingManual ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                <span>Add & Issue Certificate</span>
+              </button>
+            </form>
           )}
 
           {/* Quick Stats Strip */}
@@ -979,21 +1148,21 @@ export function AdminDashboardClient({
                   value={certSearch}
                   onChange={(e) => setCertSearch(e.target.value)}
                   placeholder="Filter name, roll, email..."
-                  className="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-300 text-xs"
+                  className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-300 text-base sm:text-xs"
                 />
               </div>
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full min-w-[700px] text-left text-xs divide-y divide-slate-200">
+              <table className="w-full min-w-[780px] text-left text-xs divide-y divide-slate-200">
                 <thead className="bg-slate-50 font-bold text-slate-600 uppercase text-[10px] tracking-wider">
                   <tr>
-                    <th className="p-3.5">Student Name (On Certificate)</th>
+                    <th className="p-3.5">Student Name</th>
                     <th className="p-3.5">Roll Number</th>
                     <th className="p-3.5">Branch & Year</th>
-                    <th className="p-3.5">Email Address</th>
-                    <th className="p-3.5">Attendance</th>
-                    <th className="p-3.5">Certificate ID</th>
+                    <th className="p-3.5">Email</th>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5">Certificate</th>
                     <th className="p-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -1054,35 +1223,54 @@ export function AdminDashboardClient({
                               )}
                             </td>
                             <td className="p-3.5 text-right">
-                              {cert ? (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <a
-                                    href={`/certificate/${cert.certificateNumber}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-[10px] transition-all"
-                                  >
-                                    <span>Preview</span>
-                                    <ExternalLink className="w-3 h-3" />
-                                  </a>
-
-                                  <button
-                                    onClick={() => handleSendSingleEmail(cert.id, p.email)}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-800 font-semibold text-[10px] transition-all cursor-pointer"
-                                  >
-                                    <Mail className="w-3 h-3 text-[#0056D2]" />
-                                    <span>{cert.emailedAt ? "Resend Mail" : "Send Mail"}</span>
-                                  </button>
-                                </div>
-                              ) : (
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* ✏️ Edit Button */}
                                 <button
-                                  onClick={() => handleGenerateSingleCert(p.id)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] transition-all cursor-pointer"
+                                  onClick={() => setEditingProfile({
+                                    id: p.id,
+                                    fullName: p.fullName,
+                                    rollNumber: p.rollNumber,
+                                    branch: p.branch,
+                                    year: p.year,
+                                    email: p.email,
+                                  })}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-50 border border-violet-200 hover:bg-violet-100 text-violet-800 font-semibold text-[10px] transition-all cursor-pointer"
+                                  title="Edit details before issuing certificate"
                                 >
-                                  <Award className="w-3 h-3" />
-                                  <span>Issue Certificate</span>
+                                  <Edit2 className="w-3 h-3" />
+                                  <span className="hidden sm:inline">Edit</span>
                                 </button>
-                              )}
+
+                                {cert ? (
+                                  <>
+                                    <a
+                                      href={`/certificate/${cert.certificateNumber}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-[10px] transition-all"
+                                    >
+                                      <span>Preview</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+
+                                    <button
+                                      onClick={() => handleSendSingleEmail(cert.id, p.email)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-800 font-semibold text-[10px] transition-all cursor-pointer"
+                                    >
+                                      <Mail className="w-3 h-3 text-[#0056D2]" />
+                                      <span>{cert.emailedAt ? "Resend" : "Mail"}</span>
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => handleGenerateSingleCert(p.id)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] transition-all cursor-pointer"
+                                  >
+                                    <Award className="w-3 h-3" />
+                                    <span>Issue</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1093,6 +1281,122 @@ export function AdminDashboardClient({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* EDIT PROFILE MODAL (Full screen on mobile, centered on desktop) */}
+      {/* ============================================================= */}
+      {editingProfile && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between"
+              style={{ background: "linear-gradient(135deg, #667eea08, #764ba208, #f5576c08)" }}
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-violet-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Edit Participant Details</h3>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">Correct the data below. Changes reflect on the certificate.</p>
+              </div>
+              <button
+                onClick={() => setEditingProfile(null)}
+                className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">Full Name (on certificate)</label>
+                <input
+                  type="text"
+                  value={editingProfile.fullName}
+                  onChange={(e) => setEditingProfile({...editingProfile, fullName: e.target.value})}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">Roll Number</label>
+                <input
+                  type="text"
+                  value={editingProfile.rollNumber}
+                  onChange={(e) => setEditingProfile({...editingProfile, rollNumber: e.target.value})}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 text-base sm:text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">Branch</label>
+                  <select
+                    value={editingProfile.branch}
+                    onChange={(e) => setEditingProfile({...editingProfile, branch: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  >
+                    <option value="IT">IT</option>
+                    <option value="AI&DS">AI & DS</option>
+                    <option value="CSE">CSE</option>
+                    <option value="ECE">ECE</option>
+                    <option value="EEE">EEE</option>
+                    <option value="MECH">MECH</option>
+                    <option value="CIVIL">CIVIL</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">Year</label>
+                  <select
+                    value={editingProfile.year}
+                    onChange={(e) => setEditingProfile({...editingProfile, year: e.target.value})}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  >
+                    <option value="1st Year">1st Year</option>
+                    <option value="2nd Year">2nd Year</option>
+                    <option value="3rd Year">3rd Year</option>
+                    <option value="4th Year">4th Year</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Info banner */}
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong>This will update the actual profile.</strong> If a certificate was already issued, it will be regenerated with the corrected data.
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="p-5 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-slate-50">
+              <button
+                onClick={() => handleEditSaveAndIssue(true)}
+                disabled={isSavingEdit || !editingProfile.fullName.trim()}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white font-bold text-xs shadow-md transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                <span>Save & Issue Certificate</span>
+              </button>
+              <button
+                onClick={() => handleEditSaveAndIssue(false)}
+                disabled={isSavingEdit}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-bold text-xs transition-all cursor-pointer"
+              >
+                <span>Save Only</span>
+              </button>
+              <button
+                onClick={() => setEditingProfile(null)}
+                className="sm:w-auto inline-flex items-center justify-center px-4 py-3 rounded-xl text-slate-500 hover:text-slate-800 font-semibold text-xs transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
 

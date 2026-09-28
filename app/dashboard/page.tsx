@@ -11,7 +11,8 @@ export default async function DashboardPage() {
   const session = await getSession();
 
   let profile = session?.identifier
-    ? dbService.getProfileByUserId(session.identifier) ||
+    ? dbService.getProfileById(session.identifier) ||
+      dbService.getProfileByUserId(session.identifier) ||
       dbService.getProfileByRollNumber(session.identifier) ||
       dbService.getProfileByEmail(session.identifier)
     : undefined;
