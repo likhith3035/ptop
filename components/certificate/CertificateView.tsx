@@ -268,7 +268,7 @@ export function CertificateView({ certificate, profile, appUrl }: CertificateVie
                 </strong>{" "}
                 focusing on Production Prompt Engineering, Generative AI Fullstack Architectures, and Autonomous Developer Workflows,
                 conducted at the Main Seminar Hall, N.B.K.R.I.S.T on{" "}
-                <span className="font-bold text-slate-900">{certificate.issueDate || "11 April 2026"}</span>.
+                <span className="font-bold text-slate-900">{certificate.issueDate || "30 September 2026"}</span>.
               </p>
 
               {/* Signatures & Seal Block */}
