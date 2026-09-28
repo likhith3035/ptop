@@ -27,7 +27,8 @@ Built specifically for high-density campus environments where **90%+ of attendee
 │  • Cryptographic QR Ticket    │  • Native Phone Camera Snap   │  • 1-Click CSV Roster Export│
 │  • WhatsApp Pass Share        │  • WhatsApp Screenshot Decode │  • Live Event Capacity Rules│
 │  • Team Formation (P2P-XXXX)  │  • Audio / Haptic Feedback    │  • Advisory Broadcaster     │
-│  • Build Challenge Submission │  • Duplicate Pass Deny Alarm  │  • Full PostgreSQL Sync     │
+│  • Build Challenge Submission │  • Duplicate Pass Deny Alarm  │  • Verified Certificates    │
+│  • Verifiable Certificate View│  • Cash Collection Workflow   │  • Password Protected Delete│
 └───────────────────────────────┴───────────────────────────────┴─────────────────────────────┘
 ```
 
@@ -56,10 +57,12 @@ Built specifically for high-density campus environments where **90%+ of attendee
 
 | Portal | URL Route | Access Credential | Role & Permissions |
 | :--- | :--- | :--- | :--- |
-| **Admin Master Console** | [`/admin`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/admin/page.tsx) | Password: `ptopadmin` | Complete financial reconciliation, participant roster, live capacity switch, CSV export, advisories. |
+| **Admin Master Console** | [`/admin`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/admin/page.tsx) | Password: `ptopadmin` | Complete financial reconciliation, participant roster, live capacity switch, CSV export, advisories, certificate issuance, and password-protected deletion. |
+| **Data Deletion Confirmation** | [`/api/admin/data`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/api/admin/data/route.ts) | Password: `delete` | Required password to delete individual attendees or wipe all data. |
 | **Coordinator Desk** | [`/coordinator`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/coordinator/page.tsx) | Password: `ptopcoordinator` | Seminar hall reception desk, check-in roster monitoring, support ticket handling. |
 | **Gate Entry Scanner** | [`/scan`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/scan/page.tsx) | PIN: `1234` | Shift-unlocked terminal for Volunteers & Admins. Live QR scanning, cash collection confirmation. |
-| **Participant Dashboard**| [`/dashboard`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/dashboard/page.tsx) | College Roll Number / Email | Personal pass, QR code, team builder, project prototype submission, workshop guides. |
+| **Participant Dashboard**| [`/dashboard`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/dashboard/page.tsx) | College Roll Number / Email | Personal pass, QR code, team builder, project prototype submission, workshop guides, and issued certificates. |
+| **Public Certificate Portal** | [`/certificate/[id]`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/certificate/[id]/page.tsx) | Certificate Number | Publicly verifiable credential with student name, roll number, academic year, branch, and institutional seal. |
 
 ---
 
@@ -103,6 +106,20 @@ Operating a noisy gate requires instantaneous multi-sensory confirmation without
 - **One-Click CSV Export**: Downloads a clean, formatted CSV roster of all attendees with payment methods and UTR references for college records.
 - **Live Emergency Advisory Broadcaster**: Post urgent advisories (e.g. Wi-Fi credentials, seating updates) that display immediately on all student dashboards.
 
+### 7. Verified Certificate Issuance & Customization
+- **1-Click Modal Customization**: Administrators can preview and customize attendee certificate details (Student Full Name, College Roll Number, Academic Year, Branch/Department, Certificate Type, Verification Code) before issuing.
+- **Manual Walk-in / Offline Issuance**: Seamless entry modal allowing staff to add walk-in attendees on the fly (Name, Email, Phone, College Roll Number, Branch, Year, Payment Method) and generate instant digital tickets & certificates.
+- **Dedicated Public Certificate Portal ([`/certificate/[id]`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/certificate/[id]/page.tsx))**:
+  - Official institutional layout with gold seal, signature authenticators, and high-contrast typography.
+  - Verifiable cryptographic verification code (e.g., `PTOP-2026-XXXX`).
+  - Print/Save as PDF with print-optimized CSS, plus 1-tap WhatsApp credential sharing.
+
+### 8. Password-Protected Single & Bulk Data Deletion System
+- **Granular Single-Attendee Deletion**: Each row in the attendee roster includes a dedicated "Delete" action to safely remove cancelled or test registrations.
+- **Bulk Clean ("Delete All Data")**: Dedicated top-level action allowing administrators to wipe test datasets, registrations, tickets, check-in attendance, and certificates before or after the live workshop.
+- **Strict Security Password Challenge**: To eliminate accidental data loss, both single deletion and bulk wipe require typing the administrative deletion password: `delete`.
+- **Server-Side Guarded Endpoint ([`/api/admin/data`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/app/api/admin/data/route.ts))**: Validates the deletion password server-side and cascades record deletions across Supabase PostgreSQL tables and fallback in-memory stores.
+
 ---
 
 ## 📱 Mobile-First Quality of Life Improvements
@@ -143,6 +160,7 @@ ptop-event/
 ├── app/
 │   ├── admin/page.tsx               # Master admin dashboard (Server Guarded)
 │   ├── coordinator/page.tsx         # Coordinator check-in dashboard (Server Guarded)
+│   ├── certificate/[id]/page.tsx    # Publicly verifiable digital certificate portal
 │   ├── dashboard/page.tsx           # Student workshop dashboard & passes
 │   ├── login/page.tsx               # Universal 3-Mode authentication portal
 │   ├── register/page.tsx            # Zero-fee student registration console
@@ -152,6 +170,7 @@ ptop-event/
 │   │   ├── admin/
 │   │   │   ├── announcement/route.ts# Advisory broadcast endpoint
 │   │   │   ├── certificate/route.ts # Certificate issuance endpoint
+│   │   │   ├── data/route.ts        # Password-protected single & bulk deletion endpoint
 │   │   │   └── event/route.ts       # Capacity & fee configuration endpoint
 │   │   ├── auth/
 │   │   │   ├── login/route.ts       # HMAC session token generator
@@ -166,7 +185,9 @@ ptop-event/
 │   └── page.tsx                     # Landing page translating official poster
 ├── components/
 │   ├── admin/
-│   │   └── AdminDashboardClient.tsx # Metrics, attendee table, CSV export
+│   │   └── AdminDashboardClient.tsx # Metrics, attendee table, CSV export, certificate & delete modals
+│   ├── certificate/
+│   │   └── CertificateView.tsx      # High-fidelity verifiable certificate & PDF print view
 │   ├── coordinator/
 │   │   └── QrScanner.tsx            # Shift PIN lock, native camera, video scanner
 │   ├── dashboard/
@@ -199,6 +220,9 @@ ptop-event/
 │   └── utils.ts                     # Token generation, currency & date formatters
 ├── public/
 │   └── images/                      # Campus architecture & workshop hall photography
+├── scripts/
+│   ├── audit-all-pages.js           # Automated headless browser audit for all routes
+│   └── test-deletion-flow.js        # Automated API test suite for data deletion system
 ├── supabase/
 │   └── schema.sql                   # Complete PostgreSQL schema, tables & RLS policies
 ├── types/
@@ -219,8 +243,8 @@ ptop-event/
 ### 2. Installation
 Clone the repository and install project dependencies:
 ```bash
-git clone https://github.com/nbkrist-events/ptop-event.git
-cd ptop-event
+git clone https://github.com/likhith3035/ptop.git
+cd ptop
 npm install
 ```
 
