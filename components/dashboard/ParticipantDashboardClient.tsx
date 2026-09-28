@@ -37,7 +37,10 @@ import {
   Sparkles,
   Clock,
   GitBranch,
-  Edit3
+  Edit3,
+  FileUp,
+  FileText,
+  X
 } from "lucide-react";
 
 interface DashboardProps {
@@ -92,6 +95,12 @@ export function ParticipantDashboardClient({
   });
   const [isSavingSub, setIsSavingSub] = useState(false);
   const [subMessage, setSubMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // Firebase Cloud Storage upload state
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
 
   // Support ticket state
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(initialSupportTickets);
@@ -996,17 +1005,163 @@ export function ParticipantDashboardClient({
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                      Presentation Deck / Video URL (Optional)
-                    </label>
-                    <input
-                      type="url"
-                      value={subForm.presentationUrl}
-                      onChange={(e) => setSubForm({ ...subForm, presentationUrl: e.target.value })}
-                      placeholder="Google Slides link, Canva deck, or Loom video link"
-                      className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
-                    />
+                  {/* Presentation Deck / Video / File Upload (Firebase Cloud Storage) */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        Slide Deck / Architecture Diagram / Demo File (Optional)
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        Cloud Storage (PDF, PPTX, MP4, ZIP ≤ 30MB)
+                      </span>
+                    </div>
+
+                    {/* File Dropzone / Uploader */}
+                    <div className="border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 transition-all bg-slate-50/50 hover:bg-blue-50/20 text-center relative">
+                      <input
+                        type="file"
+                        accept=".pdf,.pptx,.ppt,.zip,.mp4,.png,.jpg,.jpeg"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          if (file.size > 30 * 1024 * 1024) {
+                            setUploadError("File exceeds 30 MB limit. Please upload a smaller file or paste a Google Drive link below.");
+                            return;
+                          }
+
+                          setUploadError(null);
+                          setIsUploadingFile(true);
+                          setUploadProgress(0);
+
+                          try {
+                            const { storage, isFirebaseConfigured } = await import("@/lib/firebase/config");
+                            if (!isFirebaseConfigured() || !storage) {
+                              throw new Error(
+                                "Firebase Cloud Storage is not configured in .env.local yet. Please paste your Google Drive / Canva link below instead."
+                              );
+                            }
+
+                            const { ref, uploadBytesResumable, getDownloadURL } = await import("firebase/storage");
+                            const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+                            const storagePath = `submissions/${profile?.id || "participant"}/${Date.now()}_${safeName}`;
+                            const storageRef = ref(storage, storagePath);
+
+                            const uploadTask = uploadBytesResumable(storageRef, file);
+
+                            uploadTask.on(
+                              "state_changed",
+                              (snapshot) => {
+                                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                                setUploadProgress(progress);
+                              },
+                              (error) => {
+                                console.error("Firebase storage error:", error);
+                                setUploadError(error.message || "Upload failed. Please check permissions or paste link below.");
+                                setIsUploadingFile(false);
+                              },
+                              async () => {
+                                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                                setSubForm((prev) => ({ ...prev, presentationUrl: downloadUrl }));
+                                setUploadedFileName(file.name);
+                                setIsUploadingFile(false);
+                                setUploadProgress(100);
+                              }
+                            );
+                          } catch (err: unknown) {
+                            console.error("Storage upload handler:", err);
+                            setUploadError(err instanceof Error ? err.message : "Upload failed.");
+                            setIsUploadingFile(false);
+                          }
+                        }}
+                        disabled={isUploadingFile}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                      />
+
+                      <div className="flex flex-col items-center justify-center gap-1.5 pointer-events-none">
+                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-blue-600 flex items-center justify-center shadow-xs">
+                          {isUploadingFile ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                          ) : (
+                            <FileUp className="w-5 h-5 text-blue-600" />
+                          )}
+                        </div>
+                        <div className="text-xs font-semibold text-slate-700">
+                          {isUploadingFile
+                            ? `Uploading to Cloud Storage... ${uploadProgress}%`
+                            : "Click or drag to upload slide deck / PDF"}
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Supported formats: PDF, PPTX, ZIP, MP4 (up to 30 MB)
+                        </p>
+                      </div>
+
+                      {/* Active Progress Bar */}
+                      {isUploadingFile && (
+                        <div className="mt-3 w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${uploadProgress}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Upload error banner */}
+                    {uploadError && (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>{uploadError}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setUploadError(null)}
+                          className="text-rose-500 hover:text-rose-700 p-0.5"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Uploaded File Badge */}
+                    {uploadedFileName && subForm.presentationUrl && (
+                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 truncate">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-semibold truncate">{uploadedFileName}</span>
+                          <span className="text-[10px] text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">Uploaded</span>
+                        </div>
+                        <a
+                          href={subForm.presentationUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 shrink-0"
+                        >
+                          <span>Preview</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Fallback External Link Input */}
+                    <div className="pt-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-medium text-slate-500">
+                          Or paste external link (Google Slides / Canva / Loom / YouTube):
+                        </span>
+                      </div>
+                      <input
+                        type="url"
+                        value={subForm.presentationUrl}
+                        onChange={(e) => {
+                          setSubForm({ ...subForm, presentationUrl: e.target.value });
+                          setUploadedFileName(null);
+                        }}
+                        placeholder="https://docs.google.com/presentation/... or https://canva.com/..."
+                        className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                    </div>
                   </div>
 
                   <div className="pt-4 flex flex-col sm:flex-row items-center gap-3">

@@ -266,9 +266,34 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 # Confidential Security Passwords
 ADMIN_PASSWORD=ptopadmin
 COORDINATOR_PASSWORD=ptopcoordinator
+
+# Firebase Spark (Free Plan) - Google Auth & Cloud Storage (Optional)
+NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-app.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
 ```
 
-### 4. Supabase Database Provisioning
+### 4. Firebase Spark (100% Free Plan) Setup (Optional)
+To enable **1-Click Google Sign-In** and **Drag-and-Drop Presentation File Uploads (up to 30MB)**:
+1. Go to **[Firebase Console](https://console.firebase.google.com/)** and create a project on the **Spark (Free)** plan.
+2. Under **Build > Authentication > Sign-in method**, enable **Google**.
+3. Under **Build > Storage**, click **Get Started** in production mode. Allow read/write for submissions:
+   ```
+   rules_version = '2';
+   service firebase.storage {
+     match /b/{bucket}/o {
+       match /submissions/{allPaths=**} {
+         allow read, write: if true;
+       }
+     }
+   }
+   ```
+4. Copy the web app config keys into your `.env.local` or Vercel dashboard. *(If keys are omitted, the app gracefully falls back to Roll Number login & external link pasting).*
+
+### 5. Supabase Database Provisioning
 Run the SQL queries in [`supabase/schema.sql`](file:///c:/Users/kamil/OneDrive/Desktop/ptop-event/supabase/schema.sql) inside your Supabase project's **SQL Editor**. This creates:
 - `participant_profiles` (College roll numbers, branches, ISTE IDs)
 - `registrations` (Order tracking & status)
