@@ -815,15 +815,28 @@ export const dbService = {
   },
   saveSubmission(userId: string, data: Partial<ProjectSubmission>): { success: boolean; submission?: ProjectSubmission; error?: string } {
     const team = this.getTeamByUserId(userId);
+    const profile = this.getProfileByUserId(userId);
     let sub = this.getSubmissionByUserId(userId);
 
     if (sub) {
-      Object.assign(sub, data, { updatedAt: new Date().toISOString() });
+      Object.assign(sub, data, {
+        teamName: team?.name || sub.teamName || (profile ? `${profile.fullName}'s Team` : "Solo Build"),
+        submitterName: profile?.fullName || sub.submitterName,
+        rollNumber: profile?.rollNumber || sub.rollNumber,
+        branch: profile?.branch || sub.branch,
+        email: profile?.email || sub.email,
+        updatedAt: new Date().toISOString(),
+      });
     } else {
       sub = {
         id: `sub_${Date.now()}`,
         teamId: team?.id,
+        teamName: team?.name || (profile ? `${profile.fullName}'s Team` : "Solo Build"),
         userId,
+        submitterName: profile?.fullName || "Participant",
+        rollNumber: profile?.rollNumber || "N/A",
+        branch: profile?.branch || "N/A",
+        email: profile?.email || "N/A",
         projectName: data.projectName || "Untitled Build",
         problemStatement: data.problemStatement || "",
         projectDescription: data.projectDescription || "",
@@ -837,6 +850,17 @@ export const dbService = {
       };
       db.submissions.push(sub);
     }
+    return { success: true, submission: sub };
+  },
+  evaluateSubmission(id: string, evaluationScore: number, evaluationFeedback?: string): { success: boolean; submission?: ProjectSubmission; error?: string } {
+    const sub = db.submissions.find((s) => s.id === id);
+    if (!sub) {
+      return { success: false, error: "Submission not found." };
+    }
+    sub.evaluationScore = evaluationScore;
+    sub.evaluationFeedback = evaluationFeedback ? evaluationFeedback.trim() : undefined;
+    sub.status = "evaluated";
+    sub.updatedAt = new Date().toISOString();
     return { success: true, submission: sub };
   },
 
@@ -913,7 +937,7 @@ export const dbService = {
                 branch: prof?.branch,
                 email: prof?.email,
                 eventName: db.eventConfig.name,
-                issueDate: "11 April 2026",
+                issueDate: "30 September 2026",
                 verificationCode: item.verification_code || `VER-${item.id.slice(0, 8).toUpperCase()}`,
                 pdfUrl: item.pdf_url,
                 isPublished: Boolean(item.is_published),

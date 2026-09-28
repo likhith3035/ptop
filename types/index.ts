@@ -24,6 +24,7 @@ export interface EventConfig {
   nonIsteFee: number;
   isRegistrationOpen: boolean;
   maxTeamSize: number;
+  isSubmissionOpen: boolean;
 }
 
 export interface ParticipantProfile {
@@ -118,7 +119,12 @@ export interface TeamMember {
 export interface ProjectSubmission {
   id: string;
   teamId?: string;
+  teamName?: string;
   userId: string;
+  submitterName?: string;
+  rollNumber?: string;
+  branch?: string;
+  email?: string;
   projectName: string;
   problemStatement: string;
   projectDescription: string;

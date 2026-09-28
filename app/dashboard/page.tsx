@@ -109,6 +109,7 @@ export default async function DashboardPage() {
       <main className="flex-1 py-8 sm:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <ParticipantDashboardClient
+            eventConfig={dbService.getEventConfig()}
             profile={profile}
             registration={registration}
             ticket={ticket}

@@ -13,13 +13,14 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { expectedParticipants, isteFee, nonIsteFee, isRegistrationOpen } = body;
+    const { expectedParticipants, isteFee, nonIsteFee, isRegistrationOpen, isSubmissionOpen } = body;
 
     const updated = dbService.updateEventConfig({
       expectedParticipants: expectedParticipants !== undefined ? Number(expectedParticipants) : undefined,
       isteFee: isteFee !== undefined ? Number(isteFee) : undefined,
       nonIsteFee: nonIsteFee !== undefined ? Number(nonIsteFee) : undefined,
       isRegistrationOpen: isRegistrationOpen !== undefined ? Boolean(isRegistrationOpen) : undefined,
+      isSubmissionOpen: isSubmissionOpen !== undefined ? Boolean(isSubmissionOpen) : undefined,
     });
 
     return NextResponse.json({ success: true, eventConfig: updated });

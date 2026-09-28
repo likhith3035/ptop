@@ -16,6 +16,7 @@ export const DEFAULT_EVENT_CONFIG: EventConfig = {
   nonIsteFee: 100,
   isRegistrationOpen: true,
   maxTeamSize: 4,
+  isSubmissionOpen: false,
 };
 
 export const SPEAKERS = [

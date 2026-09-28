@@ -11,7 +11,8 @@ import {
   SupportTicket, 
   AnnouncementItem, 
   ResourceItem,
-  CertificateItem 
+  CertificateItem,
+  EventConfig
 } from "@/types";
 import { DigitalTicketCard } from "@/components/ticket/DigitalTicketCard";
 import { 
@@ -31,10 +32,16 @@ import {
   CheckCircle2, 
   Loader2, 
   ArrowRight,
-  ShieldCheck
+  ShieldCheck,
+  Lock,
+  Sparkles,
+  Clock,
+  GitBranch,
+  Edit3
 } from "lucide-react";
 
 interface DashboardProps {
+  eventConfig?: EventConfig;
   profile: ParticipantProfile;
   registration: Registration;
   ticket: DigitalTicket;
@@ -47,6 +54,7 @@ interface DashboardProps {
 }
 
 export function ParticipantDashboardClient({
+  eventConfig,
   profile,
   registration,
   ticket,
@@ -69,8 +77,10 @@ export function ParticipantDashboardClient({
   const [teamMessage, setTeamMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Submission state
+  // Submission state & admin lock status
+  const isSubmissionOpen = eventConfig?.isSubmissionOpen ?? false;
   const [submission, setSubmission] = useState<ProjectSubmission | undefined>(initialSubmission);
+  const [isEditingSub, setIsEditingSub] = useState(false);
   const [subForm, setSubForm] = useState({
     projectName: initialSubmission?.projectName || "",
     problemStatement: initialSubmission?.problemStatement || "",
@@ -169,6 +179,7 @@ export function ParticipantDashboardClient({
       const data = await res.json();
       if (res.ok && data.success) {
         setSubmission(data.submission);
+        setIsEditingSub(false);
         setSubMessage({
           type: "success",
           text: submitStatus === "submitted" ? "Project submitted successfully for evaluation!" : "Draft saved successfully.",
@@ -656,142 +667,372 @@ export function ParticipantDashboardClient({
         {/* TAB 4: PROJECT SUBMISSION */}
         {activeTab === "submission" && (
           <div className="space-y-6">
-            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm">
-              <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">Build Challenge Project Submission</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Submit your team&apos;s working MVP and prompt architecture for jury evaluation.
+            
+            {/* CASE 1: SUBMISSIONS CURRENTLY LOCKED BY ADMIN & NOT YET SUBMITTED */}
+            {!isSubmissionOpen && (!submission || submission.status === "draft") && (
+              <div className="p-8 sm:p-10 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6 text-center">
+                <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
+                  <Lock className="w-8 h-8" />
+                </div>
+
+                <div className="max-w-xl mx-auto space-y-2">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900">
+                    <Clock className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Submission Portal Closed</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                    Build Challenge Submissions Are Currently Locked
+                  </h2>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    The project submission portal will unlock when the event administrator opens the hands-on Build Challenge sprint (scheduled for <strong>1:45 PM – 3:15 PM</strong>). Please use this time to form your team and code your prototype.
                   </p>
                 </div>
-                {submission && (
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      submission.status === "submitted"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-800"
-                    }`}
-                  >
-                    Status: {submission.status.toUpperCase()}
+
+                {/* Preparation Checklist */}
+                <div className="max-w-2xl mx-auto text-left p-5 sm:p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#0056D2]" />
+                    <span>Sprint Preparation Checklist</span>
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-slate-600">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Form your team under the <strong>Team</strong> tab (2–4 members).</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Clone the starter repo from the <strong>Resources</strong> tab.</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Initialize a public GitHub repository with your commits.</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Deploy a live demo (Vercel, Netlify, or Render).</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rubric Preview */}
+                <div className="max-w-2xl mx-auto text-left border-t border-slate-100 pt-5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                    Evaluation Criteria (100 Points Total)
                   </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-100">
+                      <span className="font-bold text-blue-900 block">30 Pts</span>
+                      <span className="text-[10px] text-blue-700">Prompt Engineering</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+                      <span className="font-bold text-indigo-900 block">30 Pts</span>
+                      <span className="text-[10px] text-indigo-700">Code Architecture</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-purple-50 border border-purple-100">
+                      <span className="font-bold text-purple-900 block">20 Pts</span>
+                      <span className="text-[10px] text-purple-700">Live Execution</span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                      <span className="font-bold text-emerald-900 block">20 Pts</span>
+                      <span className="text-[10px] text-emerald-700">Demo & Pitch</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CASE 2: PROJECT ALREADY SUBMITTED & NOT CURRENTLY EDITING */}
+            {submission && submission.status !== "draft" && !isEditingSub && (
+              <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                          {submission.status === "evaluated" ? `Evaluated • ${submission.evaluationScore}/100` : "Submitted for Review"}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {submission.teamName || (team?.name ? team.name : "Individual")}
+                        </span>
+                      </div>
+                      <h2 className="text-xl font-black text-slate-900 mt-0.5">
+                        {submission.projectName}
+                      </h2>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isSubmissionOpen ? (
+                      <button
+                        onClick={() => setIsEditingSub(true)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-all cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit Submission</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-medium italic">
+                        Submissions locked for jury grading
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Submission Details Breakdown */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                  <div className="space-y-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
+                      Problem Statement
+                    </span>
+                    <p className="text-slate-800 leading-relaxed font-medium">
+                      {submission.problemStatement}
+                    </p>
+
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider pt-2">
+                      Prompt Pipeline & Architecture
+                    </span>
+                    <p className="text-slate-700 leading-relaxed">
+                      {submission.projectDescription}
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider mb-1.5">
+                        Tech Stack & APIs Used
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {submission.technologiesUsed?.map((tech, idx) => (
+                          <span key={idx} className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-700 font-semibold text-[11px]">
+                            {tech}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 space-y-2">
+                      <span className="text-[10px] font-bold uppercase text-slate-400 block tracking-wider">
+                        Repository & Live Artifacts
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {submission.githubUrl && (
+                          <a
+                            href={submission.githubUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs transition-all"
+                          >
+                            <GitBranch className="w-3.5 h-3.5 text-sky-400" />
+                            <span>GitHub Repository</span>
+                            <ExternalLink className="w-3 h-3 text-slate-400" />
+                          </a>
+                        )}
+
+                        {submission.liveDemoUrl && (
+                          <a
+                            href={submission.liveDemoUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Live Deployment Demo</span>
+                          </a>
+                        )}
+
+                        {submission.presentationUrl && (
+                          <a
+                            href={submission.presentationUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-semibold text-xs transition-all"
+                          >
+                            <span>Slide Deck / Video</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="pt-2 text-[11px] text-slate-400 font-mono">
+                      Timestamp: {new Date(submission.updatedAt || submission.createdAt).toLocaleString("en-IN")}
+                    </div>
+                  </div>
+                </div>
+
+                {submission.evaluationFeedback && (
+                  <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+                    <span className="font-bold uppercase text-[10px] text-amber-700 tracking-wider block">
+                      Jury Feedback
+                    </span>
+                    <p>{submission.evaluationFeedback}</p>
+                  </div>
                 )}
               </div>
+            )}
 
-              {subMessage && (
-                <div
-                  className={`mb-5 p-3 rounded-xl text-xs flex items-center gap-2 ${
-                    subMessage.type === "success"
-                      ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                      : "bg-rose-50 text-rose-800 border border-rose-200"
-                  }`}
-                >
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>{subMessage.text}</span>
-                </div>
-              )}
+            {/* CASE 3: ACTIVE SUBMISSION FORM (PORTAL OPEN) */}
+            {isSubmissionOpen && (!submission || submission.status === "draft" || isEditingSub) && (
+              <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">
+                      {isEditingSub ? "Update Your Project Submission" : "Build Challenge Project Submission"}
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Submit your team&apos;s working MVP, prompt architecture, and repository for jury evaluation.
+                    </p>
+                  </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                    Project Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={subForm.projectName}
-                    onChange={(e) => setSubForm({ ...subForm, projectName: e.target.value })}
-                    placeholder="e.g. DocuSense AI Agent"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                    Problem Statement *
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={subForm.problemStatement}
-                    onChange={(e) => setSubForm({ ...subForm, problemStatement: e.target.value })}
-                    placeholder="What specific bottleneck or workflow does your build address?"
-                    className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
+                  <div className="flex items-center gap-2">
+                    {isEditingSub && (
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingSub(false)}
+                        className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold"
+                      >
+                        Cancel Edit
+                      </button>
+                    )}
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                      Portal Open
+                    </span>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                    Project & Prompt Architecture Description *
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={subForm.projectDescription}
-                    onChange={(e) => setSubForm({ ...subForm, projectDescription: e.target.value })}
-                    placeholder="Explain your prompt pipeline, agentic structure, and technical components."
-                    className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
+                {subMessage && (
+                  <div
+                    className={`mb-5 p-3 rounded-xl text-xs flex items-center gap-2 ${
+                      subMessage.type === "success"
+                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                        : "bg-rose-50 text-rose-800 border border-rose-200"
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{subMessage.text}</span>
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                    Technologies Used (comma separated)
-                  </label>
-                  <input
-                    type="text"
-                    value={subForm.technologiesUsed}
-                    onChange={(e) => setSubForm({ ...subForm, technologiesUsed: e.target.value })}
-                    placeholder="Next.js, Python, Gemini API, Tailwind CSS"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                      GitHub Repository URL
+                      Project Name *
                     </label>
                     <input
-                      type="url"
-                      value={subForm.githubUrl}
-                      onChange={(e) => setSubForm({ ...subForm, githubUrl: e.target.value })}
-                      placeholder="https://github.com/user/repo"
+                      type="text"
+                      value={subForm.projectName}
+                      onChange={(e) => setSubForm({ ...subForm, projectName: e.target.value })}
+                      placeholder="e.g. DocuSense AI Agent"
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
-                      Live Demo / Deployment URL
+                      Problem Statement *
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={subForm.problemStatement}
+                      onChange={(e) => setSubForm({ ...subForm, problemStatement: e.target.value })}
+                      placeholder="What specific bottleneck, college task, or real-world workflow does your build address?"
+                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                      Project & Prompt Architecture Description *
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={subForm.projectDescription}
+                      onChange={(e) => setSubForm({ ...subForm, projectDescription: e.target.value })}
+                      placeholder="Explain your prompt pipeline, chain-of-thought, system prompts, and tech components."
+                      className="w-full px-4 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                      Technologies Used (comma separated)
                     </label>
                     <input
-                      type="url"
-                      value={subForm.liveDemoUrl}
-                      onChange={(e) => setSubForm({ ...subForm, liveDemoUrl: e.target.value })}
-                      placeholder="https://my-app.vercel.app"
+                      type="text"
+                      value={subForm.technologiesUsed}
+                      onChange={(e) => setSubForm({ ...subForm, technologiesUsed: e.target.value })}
+                      placeholder="Next.js, Python, Gemini API, Tailwind CSS, Supabase"
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
                     />
                   </div>
-                </div>
 
-                <div className="pt-4 flex flex-col sm:flex-row items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveSubmission("submitted")}
-                    disabled={isSavingSub}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-2"
-                  >
-                    {isSavingSub ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Finalize & Submit Project</span>}
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                        GitHub Repository URL *
+                      </label>
+                      <input
+                        type="url"
+                        value={subForm.githubUrl}
+                        onChange={(e) => setSubForm({ ...subForm, githubUrl: e.target.value })}
+                        placeholder="https://github.com/username/repository"
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleSaveSubmission("draft")}
-                    disabled={isSavingSub}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold"
-                  >
-                    Save as Draft
-                  </button>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                        Live Demo / Deployment URL
+                      </label>
+                      <input
+                        type="url"
+                        value={subForm.liveDemoUrl}
+                        onChange={(e) => setSubForm({ ...subForm, liveDemoUrl: e.target.value })}
+                        placeholder="https://my-ai-app.vercel.app"
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+                      Presentation Deck / Video URL (Optional)
+                    </label>
+                    <input
+                      type="url"
+                      value={subForm.presentationUrl}
+                      onChange={(e) => setSubForm({ ...subForm, presentationUrl: e.target.value })}
+                      placeholder="Google Slides link, Canva deck, or Loom video link"
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    />
+                  </div>
+
+                  <div className="pt-4 flex flex-col sm:flex-row items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSubmission("submitted")}
+                      disabled={isSavingSub || !subForm.projectName.trim() || !subForm.problemStatement.trim()}
+                      className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isSavingSub ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-sky-300" />}
+                      <span>{isEditingSub ? "Update Submission" : "Finalize & Submit Project"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSubmission("draft")}
+                      disabled={isSavingSub}
+                      className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold cursor-pointer"
+                    >
+                      Save as Draft
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
           </div>
         )}
 

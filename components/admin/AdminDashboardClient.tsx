@@ -42,7 +42,12 @@ import {
   X,
   Trash2,
   AlertTriangle,
-  KeyRound
+  KeyRound,
+  Lock,
+  Unlock,
+  Clock,
+  GitBranch,
+  Star
 } from "lucide-react";
 import { QrScanner } from "@/components/coordinator/QrScanner";
 
@@ -111,8 +116,20 @@ export function AdminDashboardClient({
   const [annPriority, setAnnPriority] = useState<"normal" | "urgent">("normal");
   const [isPostingAnn, setIsPostingAnn] = useState(false);
 
-  // Submissions State
-  const [submissions] = useState<ProjectSubmission[]>(initialSubmissions);
+  // Submissions State & Controls
+  const [submissions, setSubmissions] = useState<ProjectSubmission[]>(initialSubmissions);
+  const [subSearchQuery, setSubSearchQuery] = useState("");
+  const [subStatusFilter, setSubStatusFilter] = useState("ALL");
+  const [isTogglingSubmissions, setIsTogglingSubmissions] = useState(false);
+  const [gradingSubmission, setGradingSubmission] = useState<{
+    id: string;
+    projectName: string;
+    teamName?: string;
+    score: number;
+    feedback: string;
+  } | null>(null);
+  const [isSubmittingGrade, setIsSubmittingGrade] = useState(false);
+  const [gradeMessage, setGradeMessage] = useState<string | null>(null);
 
   // Certificates State
   const [certificates, setCertificates] = useState<CertificateItem[]>(initialCertificates);
@@ -280,6 +297,7 @@ export function AdminDashboardClient({
           isteFee: config.isteFee,
           nonIsteFee: config.nonIsteFee,
           isRegistrationOpen: config.isRegistrationOpen,
+          isSubmissionOpen: config.isSubmissionOpen,
         }),
       });
       const data = await res.json();
@@ -292,6 +310,115 @@ export function AdminDashboardClient({
     } finally {
       setIsSavingConfig(false);
     }
+  };
+
+  // Toggle Submissions Open / Closed
+  const handleToggleSubmissions = async () => {
+    setIsTogglingSubmissions(true);
+    const nextVal = !config.isSubmissionOpen;
+    try {
+      const res = await fetch("/api/admin/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isSubmissionOpen: nextVal }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setConfig(data.eventConfig);
+      }
+    } catch (err) {
+      console.error("Toggle submission error", err);
+    } finally {
+      setIsTogglingSubmissions(false);
+    }
+  };
+
+  // Save Grade / Evaluation for a submission
+  const handleSaveGrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gradingSubmission) return;
+    setIsSubmittingGrade(true);
+    setGradeMessage(null);
+    try {
+      const res = await fetch("/api/submission", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submissionId: gradingSubmission.id,
+          score: gradingSubmission.score,
+          feedback: gradingSubmission.feedback,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.submissions) {
+          setSubmissions(data.submissions);
+        } else if (data.submission) {
+          setSubmissions((prev) =>
+            prev.map((s) => (s.id === data.submission.id ? data.submission : s))
+          );
+        }
+        setGradeMessage("Grade and evaluation feedback saved successfully!");
+        setTimeout(() => {
+          setGradingSubmission(null);
+          setGradeMessage(null);
+        }, 1200);
+      }
+    } catch (err) {
+      console.error("Error saving grade", err);
+    } finally {
+      setIsSubmittingGrade(false);
+    }
+  };
+
+  // Export Submissions to CSV
+  const exportSubmissionsCSV = () => {
+    const headers = [
+      "Project Name",
+      "Team Name",
+      "Submitter Name",
+      "Roll Number",
+      "Branch",
+      "Email",
+      "Problem Statement",
+      "Architecture / Prompts",
+      "Technologies",
+      "GitHub Repo",
+      "Live Demo",
+      "Presentation Link",
+      "Status",
+      "Jury Score (100)",
+      "Jury Feedback",
+      "Submission Timestamp",
+    ];
+
+    const rows = submissions.map((s) => [
+      `"${s.projectName.replace(/"/g, '""')}"`,
+      `"${(s.teamName || "N/A").replace(/"/g, '""')}"`,
+      `"${(s.submitterName || "N/A").replace(/"/g, '""')}"`,
+      `"${(s.rollNumber || "N/A").replace(/"/g, '""')}"`,
+      `"${(s.branch || "N/A").replace(/"/g, '""')}"`,
+      `"${(s.email || "N/A").replace(/"/g, '""')}"`,
+      `"${s.problemStatement.replace(/"/g, '""')}"`,
+      `"${(s.projectDescription || "").replace(/"/g, '""')}"`,
+      `"${(s.technologiesUsed || []).join(", ").replace(/"/g, '""')}"`,
+      `"${s.githubUrl || ""}"`,
+      `"${s.liveDemoUrl || ""}"`,
+      `"${s.presentationUrl || ""}"`,
+      `"${s.status}"`,
+      `"${s.evaluationScore ?? "Unscored"}"`,
+      `"${(s.evaluationFeedback || "").replace(/"/g, '""')}"`,
+      `"${new Date(s.updatedAt || s.createdAt).toLocaleString("en-IN")}"`,
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Prompt_to_Production_Submissions_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // Post Announcement
@@ -969,6 +1096,22 @@ export function AdminDashboardClient({
               </button>
             </div>
 
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="font-bold text-slate-900 block">Build Challenge Submissions Status</span>
+                <span className="text-[11px] text-slate-500">Allow participants to submit GitHub repos, live demos, and solutions.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfig({ ...config, isSubmissionOpen: !config.isSubmissionOpen })}
+                className={`px-4 py-1.5 rounded-xl font-bold transition-all ${
+                  config.isSubmissionOpen ? "bg-emerald-600 text-white" : "bg-slate-300 text-slate-700"
+                }`}
+              >
+                {config.isSubmissionOpen ? "Active (Open)" : "Closed (Locked)"}
+              </button>
+            </div>
+
             <button
               type="submit"
               disabled={isSavingConfig}
@@ -1050,67 +1193,343 @@ export function AdminDashboardClient({
         </div>
       )}
 
-      {/* TAB 5: SUBMISSIONS & REVIEW */}
+      {/* TAB 5: SUBMISSIONS & EVALUATION */}
       {activeTab === "submissions" && (
-        <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Build Challenge Project Submissions</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Review prototypes, prompt architectures, and code repositories for evaluation.
-          </p>
+        <div className="p-4 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6">
+          
+          {/* Header & Primary Actions */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-900 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-indigo-700" />
+                  <span>Jury Review & Evaluation Hub</span>
+                </span>
+                <span className="text-xs text-slate-500">• Afternoon Build Sprint</span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
+                Build Challenge Project Submissions
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Review submitted code repositories, live prototypes, and prompt architectures. Grade teams out of 100 for awards.
+              </p>
+            </div>
 
-          <div className="space-y-4 mt-4">
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Submission Master Toggle Button */}
+              <button
+                onClick={handleToggleSubmissions}
+                disabled={isTogglingSubmissions}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer ${
+                  config.isSubmissionOpen
+                    ? "bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
+              >
+                {isTogglingSubmissions ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : config.isSubmissionOpen ? (
+                  <Lock className="w-4 h-4 text-rose-600" />
+                ) : (
+                  <Unlock className="w-4 h-4 text-white" />
+                )}
+                <span>{config.isSubmissionOpen ? "Lock Submissions" : "Open Submissions"}</span>
+              </button>
+
+              {/* Export Submissions to CSV */}
+              <button
+                onClick={exportSubmissionsCSV}
+                disabled={submissions.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-4 h-4 text-[#0056D2]" />
+                <span>Export Submissions CSV</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Master Switch Alert Banner */}
+          <div
+            className={`p-4 rounded-2xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              config.isSubmissionOpen
+                ? "bg-emerald-50 border-emerald-200 text-emerald-950"
+                : "bg-slate-50 border-slate-200 text-slate-800"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  config.isSubmissionOpen ? "bg-emerald-200 text-emerald-800" : "bg-slate-200 text-slate-600"
+                }`}
+              >
+                {config.isSubmissionOpen ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+              </div>
+              <div>
+                <span className="font-bold block">
+                  {config.isSubmissionOpen
+                    ? "Submission Portal is currently OPEN (Accepting Projects)"
+                    : "Submission Portal is currently LOCKED (Closed for Students)"}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  {config.isSubmissionOpen
+                    ? "Participants on /dashboard can now finalize their GitHub repos and live demo URLs."
+                    : "Participants see a locked countdown banner informing them submissions open at 1:45 PM."}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-white border border-slate-200 shadow-2xs font-mono">
+                {submissions.length} Total Submissions
+              </span>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs">
+              <button
+                onClick={() => setSubStatusFilter("ALL")}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  subStatusFilter === "ALL" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                All ({submissions.length})
+              </button>
+              <button
+                onClick={() => setSubStatusFilter("submitted")}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  subStatusFilter === "submitted" ? "bg-blue-600 text-white" : "bg-blue-50 text-blue-800 hover:bg-blue-100"
+                }`}
+              >
+                Under Review ({submissions.filter((s) => s.status === "submitted").length})
+              </button>
+              <button
+                onClick={() => setSubStatusFilter("evaluated")}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  subStatusFilter === "evaluated" ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                }`}
+              >
+                Evaluated ({submissions.filter((s) => s.status === "evaluated").length})
+              </button>
+              <button
+                onClick={() => setSubStatusFilter("draft")}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all ${
+                  subStatusFilter === "draft" ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-800 hover:bg-amber-100"
+                }`}
+              >
+                Drafts ({submissions.filter((s) => s.status === "draft").length})
+              </button>
+            </div>
+
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={subSearchQuery}
+                onChange={(e) => setSubSearchQuery(e.target.value)}
+                placeholder="Search project, team, roll..."
+                className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-300 text-base sm:text-xs"
+              />
+            </div>
+          </div>
+
+          {/* Submissions List */}
+          <div className="space-y-4">
             {submissions.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="font-semibold text-slate-700">No Project Submissions Yet</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Student teams will submit their GitHub repositories and prototypes during the afternoon Build Challenge.
+              <div className="py-14 text-center text-slate-400 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-200 space-y-2">
+                <Sparkles className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-bold text-slate-700 text-sm">No Project Submissions Received Yet</p>
+                <p className="text-[11px] text-slate-400 max-w-md mx-auto">
+                  When the afternoon Build Challenge begins, open the submission portal above so student teams can submit their repositories.
                 </p>
               </div>
             ) : (
-              submissions.map((sub) => (
-                <div key={sub.id} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <div className="font-bold text-base text-slate-900">{sub.projectName}</div>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-                      {sub.status.toUpperCase()}
-                    </span>
-                  </div>
+              submissions
+                .filter((sub) => {
+                  const q = subSearchQuery.toLowerCase();
+                  const matchesSearch =
+                    sub.projectName.toLowerCase().includes(q) ||
+                    (sub.teamName && sub.teamName.toLowerCase().includes(q)) ||
+                    (sub.submitterName && sub.submitterName.toLowerCase().includes(q)) ||
+                    (sub.rollNumber && sub.rollNumber.toLowerCase().includes(q));
 
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Problem Statement</span>
-                    <p className="text-slate-700">{sub.problemStatement}</p>
-                  </div>
+                  const matchesFilter =
+                    subStatusFilter === "ALL" || sub.status === subStatusFilter;
 
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Architecture</span>
-                    <p className="text-slate-600">{sub.projectDescription}</p>
-                  </div>
+                  return matchesSearch && matchesFilter;
+                })
+                .map((sub) => {
+                  const timestampStr = new Date(sub.updatedAt || sub.createdAt).toLocaleString("en-IN", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
 
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
-                    {sub.githubUrl && (
-                      <a
-                        href={sub.githubUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-semibold text-[11px]"
-                      >
-                        View GitHub Repo
-                      </a>
-                    )}
-                    {sub.liveDemoUrl && (
-                      <a
-                        href={sub.liveDemoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-semibold text-[11px]"
-                      >
-                        Open Live Demo
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))
+                  return (
+                    <div
+                      key={sub.id}
+                      className="p-5 sm:p-6 rounded-2xl border border-slate-200 bg-white hover:border-slate-300 shadow-xs space-y-4 text-xs transition-all"
+                    >
+                      {/* Top Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                              {sub.teamName || "Solo Build"}
+                            </span>
+                            <span className="text-slate-400">•</span>
+                            <span className="font-semibold text-slate-800">
+                              {sub.submitterName || "Participant"}
+                            </span>
+                            {sub.rollNumber && (
+                              <span className="font-mono text-slate-500">({sub.rollNumber})</span>
+                            )}
+                            {sub.branch && (
+                              <span className="text-slate-400">• {sub.branch}</span>
+                            )}
+                          </div>
+                          <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1">
+                            {sub.projectName}
+                          </h3>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{timestampStr}</span>
+                          </div>
+
+                          {sub.status === "evaluated" ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 font-bold text-xs flex items-center gap-1">
+                              <Star className="w-3.5 h-3.5 text-emerald-600 fill-emerald-600" />
+                              <span>{sub.evaluationScore}/100</span>
+                            </span>
+                          ) : sub.status === "submitted" ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-900 font-bold text-xs">
+                              Submitted
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 font-bold text-xs">
+                              Draft
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Problem Statement & Architecture */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">
+                            Problem Statement
+                          </span>
+                          <p className="text-slate-800 leading-relaxed font-medium">
+                            {sub.problemStatement}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">
+                            Architecture & Prompt Pipeline
+                          </span>
+                          <p className="text-slate-700 leading-relaxed">
+                            {sub.projectDescription || "No architecture description provided."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Tech Stack Chips */}
+                      {sub.technologiesUsed && sub.technologiesUsed.length > 0 && (
+                        <div>
+                          <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block mb-1">
+                            Technologies & APIs
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {sub.technologiesUsed.map((t, idx) => (
+                              <span
+                                key={idx}
+                                className="px-2.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 font-medium text-[11px]"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Evaluation Feedback Note if present */}
+                      {sub.evaluationFeedback && (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs">
+                          <span className="font-bold uppercase text-[10px] text-emerald-800 tracking-wider block">
+                            Jury Score & Feedback ({sub.evaluationScore}/100)
+                          </span>
+                          <p className="mt-0.5">{sub.evaluationFeedback}</p>
+                        </div>
+                      )}
+
+                      {/* Action Links & Evaluation Trigger */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {sub.githubUrl && (
+                            <a
+                              href={sub.githubUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs transition-all"
+                            >
+                              <GitBranch className="w-3.5 h-3.5 text-sky-400" />
+                              <span>GitHub Repo</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
+                            </a>
+                          )}
+
+                          {sub.liveDemoUrl && (
+                            <a
+                              href={sub.liveDemoUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Live Demo</span>
+                            </a>
+                          )}
+
+                          {sub.presentationUrl && (
+                            <a
+                              href={sub.presentationUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-semibold text-xs transition-all"
+                            >
+                              <span>Slides / Video</span>
+                            </a>
+                          )}
+                        </div>
+
+                        <div>
+                          <button
+                            onClick={() =>
+                              setGradingSubmission({
+                                id: sub.id,
+                                projectName: sub.projectName,
+                                teamName: sub.teamName,
+                                score: sub.evaluationScore ?? 85,
+                                feedback: sub.evaluationFeedback || "",
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-900 font-bold text-xs transition-all cursor-pointer"
+                          >
+                            <Star className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>{sub.status === "evaluated" ? "Update Grade" : "Grade Submission"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
             )}
           </div>
         </div>
@@ -1450,6 +1869,112 @@ export function AdminDashboardClient({
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* JURY EVALUATION & SCORING MODAL                               */}
+      {/* ============================================================= */}
+      {gradingSubmission && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-indigo-50/50 to-purple-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                  <Star className="w-5 h-5 fill-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Grade Project Submission</h3>
+                  <p className="text-[11px] text-slate-500">{gradingSubmission.projectName} • {gradingSubmission.teamName || "Solo Build"}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setGradingSubmission(null)}
+                className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveGrade}>
+              <div className="p-5 space-y-4 text-xs">
+                {gradeMessage && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-semibold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{gradeMessage}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">
+                    Jury Score (0 – 100 Points) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      required
+                      value={gradingSubmission.score}
+                      onChange={(e) =>
+                        setGradingSubmission({
+                          ...gradingSubmission,
+                          score: Math.min(100, Math.max(0, Number(e.target.value))),
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 text-base sm:text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-200 font-mono"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                      / 100
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Rubric: Prompt Engineering (30), Code Architecture (30), Execution (20), Demo (20).
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-800 uppercase tracking-wider mb-1.5">
+                    Evaluation Feedback & Jury Comments
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={gradingSubmission.feedback}
+                    onChange={(e) =>
+                      setGradingSubmission({
+                        ...gradingSubmission,
+                        feedback: e.target.value,
+                      })
+                    }
+                    placeholder="e.g. Excellent agentic prompt architecture. The live prototype on Vercel is snappy. Clean GitHub commit history."
+                    className="w-full px-4 py-3 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="p-5 border-t border-slate-200 flex items-center justify-end gap-2.5 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setGradingSubmission(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingGrade}
+                  className="px-6 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingGrade ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4 fill-white" />}
+                  <span>Save Evaluation</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
