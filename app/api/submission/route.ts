@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/db";
+import { syncSubmissionToRtdb } from "@/lib/firebase/rtdb";
 
 export async function GET() {
   const eventConfig = dbService.getEventConfig();
@@ -53,6 +54,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
+    if (result.submission) {
+      syncSubmissionToRtdb(result.submission);
+    }
+
     return NextResponse.json({ success: true, submission: result.submission });
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Internal Server Error";
@@ -72,6 +77,10 @@ export async function PATCH(req: NextRequest) {
     const result = dbService.evaluateSubmission(submissionId, Number(score), feedback);
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    if (result.submission) {
+      syncSubmissionToRtdb(result.submission);
     }
 
     return NextResponse.json({

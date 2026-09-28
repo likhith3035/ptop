@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   EventConfig, 
   DigitalTicket, 
@@ -223,6 +223,89 @@ export function AdminDashboardClient({
       setIsDeleting(false);
     }
   };
+
+  // Realtime Database listeners for live check-in counters and project submissions
+  useEffect(() => {
+    let unsubStats: (() => void) | null = null;
+    let unsubSubs: (() => void) | null = null;
+    let unsubAtt: (() => void) | null = null;
+    let isMounted = true;
+
+    const connectRtdb = async () => {
+      try {
+        const { rtdb } = await import("@/lib/firebase/config");
+        if (!rtdb) return;
+
+        const { ref, onValue } = await import("firebase/database");
+
+        // 1. Live stats listener (checked in count updates on gate scans)
+        const statsRef = ref(rtdb, "stats");
+        unsubStats = onValue(statsRef, (snapshot) => {
+          if (!isMounted) return;
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            if (data && typeof data.checkedIn === "number") {
+              setStats((prev) => ({
+                ...prev,
+                checkedInParticipants: data.checkedIn,
+              }));
+            }
+          }
+        });
+
+        // 2. Live submissions listener (new submissions appear in real time)
+        const subsRef = ref(rtdb, "submissions");
+        unsubSubs = onValue(subsRef, (snapshot) => {
+          if (!isMounted) return;
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            if (data && typeof data === "object") {
+              const liveSubs = Object.values(data) as ProjectSubmission[];
+              if (liveSubs.length > 0) {
+                setSubmissions((prev) => {
+                  const map = new Map(prev.map((s) => [s.id, s]));
+                  for (const s of liveSubs) {
+                    map.set(s.id, s);
+                  }
+                  return Array.from(map.values());
+                });
+              }
+            }
+          }
+        });
+
+        // 3. Live individual attendance listener
+        const attRef = ref(rtdb, "attendance");
+        unsubAtt = onValue(attRef, (snapshot) => {
+          if (!isMounted) return;
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            if (data && typeof data === "object") {
+              const checkedInTicketNums = new Set(Object.keys(data));
+              setTickets((prev) =>
+                prev.map((t) =>
+                  checkedInTicketNums.has(t.ticketNumber)
+                    ? { ...t, attendanceStatus: "checked_in" }
+                    : t
+                )
+              );
+            }
+          }
+        });
+      } catch {
+        // Non-blocking fallback
+      }
+    };
+
+    connectRtdb();
+
+    return () => {
+      isMounted = false;
+      if (unsubStats) unsubStats();
+      if (unsubSubs) unsubSubs();
+      if (unsubAtt) unsubAtt();
+    };
+  }, []);
 
   // Filtered Participants
   const filteredTickets = tickets.filter((t) => {

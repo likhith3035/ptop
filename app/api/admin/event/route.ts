@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/db";
 import { verifyApiSession } from "@/lib/auth";
+import { syncEventConfigToRtdb } from "@/lib/firebase/rtdb";
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,6 +22,12 @@ export async function POST(req: NextRequest) {
       nonIsteFee: nonIsteFee !== undefined ? Number(nonIsteFee) : undefined,
       isRegistrationOpen: isRegistrationOpen !== undefined ? Boolean(isRegistrationOpen) : undefined,
       isSubmissionOpen: isSubmissionOpen !== undefined ? Boolean(isSubmissionOpen) : undefined,
+    });
+
+    syncEventConfigToRtdb({
+      isRegistrationOpen: updated.isRegistrationOpen,
+      isSubmissionOpen: updated.isSubmissionOpen,
+      expectedParticipants: updated.expectedParticipants,
     });
 
     return NextResponse.json({ success: true, eventConfig: updated });

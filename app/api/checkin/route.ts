@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbService } from "@/lib/db";
 import { verifyApiSession } from "@/lib/auth";
+import { syncCheckInToRtdb } from "@/lib/firebase/rtdb";
 
 export async function POST(req: NextRequest) {
   try {
@@ -47,6 +48,10 @@ export async function POST(req: NextRequest) {
         },
         { status: 404 }
       );
+    }
+
+    if (checkinResult.success && !checkinResult.alreadyCheckedIn && checkinResult.ticket) {
+      syncCheckInToRtdb(checkinResult.ticket, checkinResult.stats);
     }
 
     return NextResponse.json({
