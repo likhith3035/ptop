@@ -2,14 +2,17 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, Auth } from "firebase/auth";
 import { getDatabase, Database } from "firebase/database";
 
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "prompt-to-production-b3ffb";
+
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`,
+  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || `https://${projectId}-default-rtdb.firebaseio.com`,
+  projectId,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "920350590806",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:920350590806:web:cd869294cc9ac21c6bb8f7",
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID || "G-07P9KECTEM",
 };
 
 export const isFirebaseConfigured = (): boolean => {
@@ -44,6 +47,15 @@ if (typeof window !== "undefined") {
         rtdb = getDatabase(app);
       } catch (dbErr) {
         console.warn("Firebase RTDB initialization note:", dbErr);
+      }
+
+      // Safe non-blocking Analytics initialization
+      if (firebaseConfig.measurementId) {
+        import("firebase/analytics").then(({ getAnalytics, isSupported }) => {
+          isSupported().then((supported) => {
+            if (supported && app) getAnalytics(app);
+          }).catch(() => {});
+        }).catch(() => {});
       }
     } catch (e) {
       console.warn("Firebase client initialization error:", e);
