@@ -10,7 +10,8 @@ import {
   Team, 
   ProjectSubmission, 
   AnnouncementItem,
-  ResourceItem 
+  ResourceItem,
+  CertificateItem
 } from "@/types";
 import { 
   LayoutDashboard, 
@@ -31,7 +32,11 @@ import {
   ToggleLeft,
   ToggleRight,
   LogOut,
-  QrCode
+  QrCode,
+  Mail,
+  Send,
+  ExternalLink,
+  Check
 } from "lucide-react";
 import { QrScanner } from "@/components/coordinator/QrScanner";
 
@@ -57,6 +62,7 @@ interface AdminDashboardProps {
   submissions: ProjectSubmission[];
   announcements: AnnouncementItem[];
   resources: ResourceItem[];
+  certificates?: CertificateItem[];
 }
 
 export function AdminDashboardClient({
@@ -70,6 +76,7 @@ export function AdminDashboardClient({
   submissions: initialSubmissions,
   announcements: initialAnnouncements,
   resources,
+  certificates: initialCertificates = [],
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<
     "overview" | "scanner" | "participants" | "payments" | "event" | "coordinators" | "announcements" | "submissions" | "certificates"
@@ -95,6 +102,13 @@ export function AdminDashboardClient({
   // Tickets state
   const [tickets, setTickets] = useState<DigitalTicket[]>(initialTickets);
   const [submissions] = useState<ProjectSubmission[]>(initialSubmissions);
+
+  // Certificates State
+  const [certificates, setCertificates] = useState<CertificateItem[]>(initialCertificates);
+  const [isGeneratingCerts, setIsGeneratingCerts] = useState(false);
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [certActionMessage, setCertActionMessage] = useState<string | null>(null);
+  const [certSearch, setCertSearch] = useState("");
 
   // Filtered Participants
   const filteredTickets = tickets.filter((t) => {
@@ -208,6 +222,91 @@ export function AdminDashboardClient({
       console.error(err);
     } finally {
       setIsPostingAnn(false);
+    }
+  };
+
+  // Generate All Certificates
+  const handleGenerateAllCerts = async () => {
+    setIsGeneratingCerts(true);
+    setCertActionMessage(null);
+    try {
+      const res = await fetch("/api/admin/certificate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generateAll: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCertificates(data.certificates);
+        setCertActionMessage(data.message || "All certificates generated successfully!");
+      }
+    } catch {
+      setCertActionMessage("Failed to generate certificates. Please try again.");
+    } finally {
+      setIsGeneratingCerts(false);
+    }
+  };
+
+  // Generate Single Certificate
+  const handleGenerateSingleCert = async (participantId: string) => {
+    try {
+      const res = await fetch("/api/admin/certificate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.certificate) {
+        setCertificates([...certificates.filter((c) => c.participantId !== participantId), data.certificate]);
+        setCertActionMessage(`Certificate generated for participant!`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Send All Certificates Email
+  const handleSendAllEmails = async () => {
+    setIsSendingEmails(true);
+    setCertActionMessage(null);
+    try {
+      const res = await fetch("/api/admin/certificate/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendAll: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCertActionMessage(`🎉 ${data.message}`);
+        // Refresh certificates to update emailedAt
+        const certRes = await fetch("/api/admin/certificate");
+        const certData = await certRes.json();
+        if (certData.certificates) {
+          setCertificates(certData.certificates);
+        }
+      }
+    } catch {
+      setCertActionMessage("Failed to dispatch emails. Please try again.");
+    } finally {
+      setIsSendingEmails(false);
+    }
+  };
+
+  // Send Single Email
+  const handleSendSingleEmail = async (certId: string, email: string) => {
+    try {
+      const res = await fetch("/api/admin/certificate/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ certificateId: certId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.detail?.mailtoUrl) {
+        setCertActionMessage(`Email dispatched to ${email}! Opening email composer...`);
+        window.open(data.detail.mailtoUrl, "_blank");
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -347,6 +446,15 @@ export function AdminDashboardClient({
           }`}
         >
           Challenge Submissions ({submissions.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("certificates")}
+          className={`px-4 py-2 rounded-xl transition-all whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === "certificates" ? "bg-amber-600 text-white shadow-xs" : "bg-white text-slate-700 hover:bg-slate-100"
+          }`}
+        >
+          <Award className="w-3.5 h-3.5 text-amber-300" />
+          <span>Certificates & Emails ({certificates.length})</span>
         </button>
       </div>
 
@@ -780,6 +888,211 @@ export function AdminDashboardClient({
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* TAB 6: CERTIFICATES & EMAIL DISPATCH */}
+      {activeTab === "certificates" && (
+        <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-6">
+          
+          {/* Header & Primary Actions */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 flex items-center gap-1">
+                  <Award className="w-3 h-3 text-amber-700" />
+                  <span>Credential Issuance Console</span>
+                </span>
+                <span className="text-xs text-slate-500">• N.B.K.R.I.S.T & ISTE</span>
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 mt-1">
+                Official Certificates & Direct Email Dispatch
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Generate verified certificates with participant names, roll numbers, and official signatures. Dispatch credentials directly to registered emails.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                onClick={handleGenerateAllCerts}
+                disabled={isGeneratingCerts || profiles.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isGeneratingCerts ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                <span>Generate All Certificates with Names</span>
+              </button>
+
+              <button
+                onClick={handleSendAllEmails}
+                disabled={isSendingEmails || certificates.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0056D2] hover:bg-[#0041a3] text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSendingEmails ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <span>Send Certificates to All Mails</span>
+              </button>
+            </div>
+          </div>
+
+          {certActionMessage && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="font-semibold">{certActionMessage}</span>
+            </div>
+          )}
+
+          {/* Quick Stats Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Students</span>
+              <span className="text-lg font-black text-slate-900">{profiles.length}</span>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Checked In</span>
+              <span className="text-lg font-black text-emerald-600">
+                {tickets.filter((t) => t.attendanceStatus === "checked_in").length}
+              </span>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Certificates Issued</span>
+              <span className="text-lg font-black text-amber-600">{certificates.length}</span>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Pending Generation</span>
+              <span className="text-lg font-black text-slate-500">
+                {Math.max(0, profiles.length - certificates.length)}
+              </span>
+            </div>
+          </div>
+
+          {/* Participant Certificate Roster */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-slate-900">
+                Attendee Certificate Directory ({profiles.length})
+              </h3>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={certSearch}
+                  onChange={(e) => setCertSearch(e.target.value)}
+                  placeholder="Filter name, roll, email..."
+                  className="w-full pl-9 pr-3.5 py-1.5 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full min-w-[700px] text-left text-xs divide-y divide-slate-200">
+                <thead className="bg-slate-50 font-bold text-slate-600 uppercase text-[10px] tracking-wider">
+                  <tr>
+                    <th className="p-3.5">Student Name (On Certificate)</th>
+                    <th className="p-3.5">Roll Number</th>
+                    <th className="p-3.5">Branch & Year</th>
+                    <th className="p-3.5">Email Address</th>
+                    <th className="p-3.5">Attendance</th>
+                    <th className="p-3.5">Certificate ID</th>
+                    <th className="p-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {profiles.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-10 text-center text-slate-400">
+                        <Award className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="font-semibold text-slate-700">No Participants Registered Yet</p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          When students enroll on the website, their names and certificate issuance controls will appear here.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    profiles
+                      .filter((p) => {
+                        const q = certSearch.toLowerCase();
+                        return (
+                          p.fullName.toLowerCase().includes(q) ||
+                          p.rollNumber.toLowerCase().includes(q) ||
+                          p.email.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((p) => {
+                        const ticket = tickets.find(
+                          (t) => t.rollNumber.toUpperCase() === p.rollNumber.toUpperCase()
+                        );
+                        const cert = certificates.find(
+                          (c) => c.participantId === p.id || c.rollNumber?.toUpperCase() === p.rollNumber.toUpperCase()
+                        );
+                        const isCheckedIn = ticket?.attendanceStatus === "checked_in";
+
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="p-3.5 font-bold text-slate-900">{p.fullName}</td>
+                            <td className="p-3.5 font-mono text-slate-600">{p.rollNumber}</td>
+                            <td className="p-3.5">{p.branch} • {p.year}</td>
+                            <td className="p-3.5 font-mono text-slate-500 text-[11px]">{p.email}</td>
+                            <td className="p-3.5">
+                              {isCheckedIn ? (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                                  Checked In
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px]">
+                                  Pending
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3.5">
+                              {cert ? (
+                                <span className="font-mono text-amber-700 font-bold text-[11px]">
+                                  {cert.certificateNumber}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Not Generated</span>
+                              )}
+                            </td>
+                            <td className="p-3.5 text-right">
+                              {cert ? (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <a
+                                    href={`/certificate/${cert.certificateNumber}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-[10px] transition-all"
+                                  >
+                                    <span>Preview</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+
+                                  <button
+                                    onClick={() => handleSendSingleEmail(cert.id, p.email)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-800 font-semibold text-[10px] transition-all cursor-pointer"
+                                  >
+                                    <Mail className="w-3 h-3 text-[#0056D2]" />
+                                    <span>{cert.emailedAt ? "Resend Mail" : "Send Mail"}</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => handleGenerateSingleCert(p.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10px] transition-all cursor-pointer"
+                                >
+                                  <Award className="w-3 h-3" />
+                                  <span>Issue Certificate</span>
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       )}
 

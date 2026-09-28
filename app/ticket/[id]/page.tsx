@@ -1,11 +1,11 @@
 import React from "react";
-import { notFound } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { DigitalTicketCard } from "@/components/ticket/DigitalTicketCard";
+import { TicketNotFoundRecovery } from "@/components/ticket/TicketNotFoundRecovery";
 import { dbService } from "@/lib/db";
 import Link from "next/link";
-import { ArrowLeft, Ticket } from "lucide-react";
+import { ArrowLeft, Award, ExternalLink } from "lucide-react";
 
 export default async function TicketPage({
   params,
@@ -14,44 +14,23 @@ export default async function TicketPage({
 }) {
   const { id } = await params;
 
-  // Retrieve ticket from server db service by registration number or id
-  const ticket =
-    dbService.getTicketByRegistrationNumber(id) ||
-    dbService.getTickets().find((t) => t.id === id || t.qrToken === id);
+  // Retrieve ticket from server db service or direct Supabase lookup
+  const ticket = await dbService.getTicketAsync(id);
 
   if (!ticket) {
     return (
       <div className="min-h-screen flex flex-col bg-slate-50">
         <Navbar />
         <main className="flex-1 flex items-center justify-center p-6">
-          <div className="max-w-md w-full text-center p-8 rounded-3xl bg-white border border-slate-200 shadow-sm">
-            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4">
-              <Ticket className="w-6 h-6" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-900">Ticket Not Found</h2>
-            <p className="text-xs text-slate-500 mt-2">
-              No digital ticket matching &ldquo;<span className="font-mono">{id}</span>&rdquo; was found in our verified registry.
-            </p>
-            <div className="mt-6 flex flex-col gap-2">
-              <Link
-                href="/register"
-                className="py-2.5 px-4 rounded-xl bg-[#0056D2] text-white font-semibold text-xs shadow-xs"
-              >
-                Register for Workshop
-              </Link>
-              <Link
-                href="/"
-                className="py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-medium text-xs"
-              >
-                Return to Homepage
-              </Link>
-            </div>
-          </div>
+          <TicketNotFoundRecovery id={id} />
         </main>
         <Footer />
       </div>
     );
   }
+
+  // Check if participant has an issued certificate
+  const certificate = dbService.getCertificateByRollNumber(ticket.rollNumber);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FAFBFD] relative overflow-hidden">
@@ -62,10 +41,10 @@ export default async function TicketPage({
       <div className="absolute inset-0 bg-tech-dots opacity-40 pointer-events-none -z-10" />
 
       <main className="flex-1 py-10 sm:py-16">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
           
           {/* Back link */}
-          <div className="mb-6">
+          <div>
             <Link
               href="/"
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
@@ -74,6 +53,33 @@ export default async function TicketPage({
               <span>Back to Workshop Overview</span>
             </Link>
           </div>
+
+          {/* Certificate banner if issued */}
+          {certificate && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-50 to-amber-500/10 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Award className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider">
+                    Official Certificate Issued!
+                  </h4>
+                  <p className="text-[11px] text-amber-800 font-medium">
+                    Certificate No: <span className="font-mono font-bold">{certificate.certificateNumber}</span>
+                  </p>
+                </div>
+              </div>
+
+              <Link
+                href={`/certificate/${certificate.certificateNumber}`}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
+              >
+                <span>View & Print Certificate</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          )}
 
           <DigitalTicketCard ticket={ticket} />
 

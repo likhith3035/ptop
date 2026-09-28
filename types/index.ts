@@ -173,9 +173,14 @@ export interface CertificateItem {
   certificateNumber: string;
   participantId: string;
   participantName: string;
+  rollNumber?: string;
+  branch?: string;
+  email?: string;
   eventName: string;
   issueDate: string;
   verificationCode: string;
   pdfUrl?: string;
   isPublished: boolean;
+  emailedAt?: string;
+  createdAt?: string;
 }

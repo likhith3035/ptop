@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Call server database service
-    const result = dbService.createRegistration({
+    const result = await dbService.createRegistration({
       fullName,
       email,
       mobile,

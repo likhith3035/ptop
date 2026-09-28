@@ -214,6 +214,17 @@ export function RegistrationForm() {
         colors: ["#002970", "#0056D2", "#00BAF2", "#FACC15", "#10B981"]
       });
 
+      // Secure local offline backup: Guarantee ticket is instantly accessible even on serverless cold starts
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`ptop_ticket_${data.ticket.registrationNumber}`, JSON.stringify(data.ticket));
+          localStorage.setItem("ptop_active_ticket", JSON.stringify(data.ticket));
+          localStorage.setItem("ptop_my_roll", form.rollNumber.trim().toUpperCase());
+        } catch (e) {
+          console.warn("Could not save ticket to localStorage:", e);
+        }
+      }
+
       // Redirect directly to the generated Digital Ticket Pass
       router.push(`/ticket/${data.ticket.registrationNumber}`);
     } catch {

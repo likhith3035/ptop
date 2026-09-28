@@ -31,6 +31,7 @@ export default async function AdminPage() {
   const submissions = dbService.getSubmissions();
   const announcements = dbService.getAllAnnouncements();
   const resources = dbService.getAllResources();
+  const certificates = await dbService.getCertificatesAsync();
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50/70">
@@ -49,6 +50,7 @@ export default async function AdminPage() {
             submissions={submissions}
             announcements={announcements}
             resources={resources}
+            certificates={certificates}
           />
         </div>
       </main>

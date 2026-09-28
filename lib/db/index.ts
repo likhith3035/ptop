@@ -272,7 +272,7 @@ export const dbService = {
   },
 
   // Server-side registration creation & validation (Zero Gateway Fees / Direct UPI / Cash at Desk)
-  createRegistration(data: {
+  async createRegistration(data: {
     fullName: string;
     email: string;
     mobile: string;
@@ -286,14 +286,14 @@ export const dbService = {
     linkedinUrl?: string;
     paymentMethod: "upi" | "cash_at_desk";
     upiReference?: string;
-  }): {
+  }): Promise<{
     success: boolean;
     error?: string;
     registration?: Registration;
     profile?: ParticipantProfile;
     ticket?: DigitalTicket;
     amount?: number;
-  } {
+  }> {
     // 1. Capacity check
     if (!db.eventConfig.isRegistrationOpen) {
       return { success: false, error: "Registration is currently closed by the organizers." };
@@ -413,46 +413,48 @@ export const dbService = {
     db.tickets.push(ticket);
     db.payments.push(payment);
 
+    // Sequential await for relational integrity in Supabase
     const sb = getSupabaseAdmin();
     if (sb) {
-      sb.from("participant_profiles").insert({
-        id: profileId,
-        full_name: profile.fullName,
-        email: profile.email,
-        mobile: profile.mobile,
-        roll_number: profile.rollNumber,
-        year: profile.year,
-        branch: profile.branch,
-        section: profile.section,
-        is_iste_member: profile.isIsteMember,
-        iste_number: profile.isteNumber,
-        has_laptop: profile.hasLaptop,
-        linkedin_url: profile.linkedinUrl
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.error("Supabase profile sync error:", error);
-      });
+      try {
+        const { error: pErr } = await sb.from("participant_profiles").insert({
+          id: profileId,
+          full_name: profile.fullName,
+          email: profile.email,
+          mobile: profile.mobile,
+          roll_number: profile.rollNumber,
+          year: profile.year,
+          branch: profile.branch,
+          section: profile.section,
+          is_iste_member: profile.isIsteMember,
+          iste_number: profile.isteNumber,
+          has_laptop: profile.hasLaptop,
+          linkedin_url: profile.linkedinUrl
+        });
+        if (pErr) console.error("Supabase profile sync error:", pErr);
 
-      sb.from("registrations").insert({
-        id: regId,
-        participant_id: profileId,
-        registration_number: registration.registrationNumber,
-        amount: registration.amount,
-        is_iste: registration.isIste,
-        status: registration.status,
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.error("Supabase reg sync error:", error);
-      });
+        const { error: rErr } = await sb.from("registrations").insert({
+          id: regId,
+          participant_id: profileId,
+          registration_number: registration.registrationNumber,
+          amount: registration.amount,
+          is_iste: registration.isIste,
+          status: registration.status,
+        });
+        if (rErr) console.error("Supabase reg sync error:", rErr);
 
-      sb.from("tickets").insert({
-        id: ticketId,
-        participant_id: profileId,
-        registration_id: regId,
-        ticket_number: ticket.ticketNumber,
-        qr_token: ticket.qrToken,
-        is_iste_member: ticket.isIsteMember
-      }).then(({ error }: { error: unknown }) => {
-        if (error) console.error("Supabase ticket sync error:", error);
-      });
+        const { error: tErr } = await sb.from("tickets").insert({
+          id: ticketId,
+          participant_id: profileId,
+          registration_id: regId,
+          ticket_number: ticket.ticketNumber,
+          qr_token: ticket.qrToken,
+          is_iste_member: ticket.isIsteMember
+        });
+        if (tErr) console.error("Supabase ticket sync error:", tErr);
+      } catch (sbErr) {
+        console.error("Supabase sequential sync error:", sbErr);
+      }
     }
 
     return {
@@ -464,13 +466,149 @@ export const dbService = {
     };
   },
 
+  // Synchronize client-recovered ticket to in-memory store & Supabase
+  syncTicket(ticket: DigitalTicket) {
+    if (!ticket || !ticket.registrationNumber) return;
+    const exists = db.tickets.some((t) => t.registrationNumber === ticket.registrationNumber);
+    if (!exists) {
+      db.tickets.push(ticket);
+    }
+  },
+
   // Tickets
   getTickets(): DigitalTicket[] {
     return db.tickets;
   },
   getTicketByRegistrationNumber(regNum: string): DigitalTicket | undefined {
-    return db.tickets.find((t) => t.registrationNumber === regNum);
+    return db.tickets.find((t) => t.registrationNumber.toUpperCase() === regNum.trim().toUpperCase());
   },
+  async getTicketAsync(idOrRegNum: string): Promise<DigitalTicket | undefined> {
+    if (!idOrRegNum) return undefined;
+    const query = idOrRegNum.trim().toUpperCase();
+
+    // 1. Check in-memory store
+    const local = db.tickets.find(
+      (t) =>
+        t.registrationNumber.toUpperCase() === query ||
+        t.id === idOrRegNum ||
+        t.qrToken === idOrRegNum ||
+        t.rollNumber.toUpperCase() === query ||
+        t.ticketNumber.toUpperCase() === query
+    );
+    if (local) return local;
+
+    // 2. Query Supabase directly
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        // Query registrations table by registration_number
+        const { data: reg } = await sb
+          .from("registrations")
+          .select("*, participant_profiles(*), tickets(*)")
+          .ilike("registration_number", query)
+          .maybeSingle();
+
+        if (reg && reg.participant_profiles) {
+          const prof = reg.participant_profiles;
+          const tkt = Array.isArray(reg.tickets) && reg.tickets.length > 0 ? reg.tickets[0] : null;
+
+          const newTicket: DigitalTicket = {
+            id: tkt?.id || crypto.randomUUID(),
+            ticketNumber: tkt?.ticket_number || `TKT-P2P-${reg.registration_number.slice(-6)}`,
+            registrationNumber: reg.registration_number,
+            participantName: prof.full_name,
+            rollNumber: prof.roll_number,
+            branch: prof.branch,
+            year: prof.year,
+            eventName: `${db.eventConfig.name} – ${db.eventConfig.subtitle}`,
+            date: db.eventConfig.displayDate,
+            time: db.eventConfig.time,
+            venue: db.eventConfig.venue,
+            qrToken: tkt?.qr_token || generateTicketToken(),
+            isIsteMember: Boolean(reg.is_iste),
+            attendanceStatus: "pending",
+            createdAt: reg.created_at || new Date().toISOString(),
+          };
+
+          if (!db.tickets.some((existing) => existing.registrationNumber === newTicket.registrationNumber)) {
+            db.tickets.push(newTicket);
+          }
+          return newTicket;
+        }
+
+        // Query tickets table directly by ticket_number, qr_token, or id
+        const { data: tkt } = await sb
+          .from("tickets")
+          .select("*, participant_profiles(*), registrations(*)")
+          .or(`id.eq.${idOrRegNum},ticket_number.ilike.${idOrRegNum},qr_token.eq.${idOrRegNum}`)
+          .maybeSingle();
+
+        if (tkt && tkt.participant_profiles) {
+          const prof = tkt.participant_profiles;
+          const regInfo = tkt.registrations;
+          const newTicket: DigitalTicket = {
+            id: tkt.id,
+            ticketNumber: tkt.ticket_number,
+            registrationNumber: regInfo?.registration_number || `P2P-2026-${prof.roll_number.slice(-4)}`,
+            participantName: prof.full_name,
+            rollNumber: prof.roll_number,
+            branch: prof.branch,
+            year: prof.year,
+            eventName: `${db.eventConfig.name} – ${db.eventConfig.subtitle}`,
+            date: db.eventConfig.displayDate,
+            time: db.eventConfig.time,
+            venue: db.eventConfig.venue,
+            qrToken: tkt.qr_token,
+            isIsteMember: Boolean(tkt.is_iste_member),
+            attendanceStatus: "pending",
+            createdAt: tkt.created_at || new Date().toISOString(),
+          };
+          if (!db.tickets.some((existing) => existing.registrationNumber === newTicket.registrationNumber)) {
+            db.tickets.push(newTicket);
+          }
+          return newTicket;
+        }
+
+        // Query participant_profiles table directly by roll_number
+        const { data: profileByRoll } = await sb
+          .from("participant_profiles")
+          .select("*, registrations(*, tickets(*))")
+          .ilike("roll_number", query)
+          .maybeSingle();
+
+        if (profileByRoll && profileByRoll.registrations && profileByRoll.registrations.length > 0) {
+          const regInfo = profileByRoll.registrations[0];
+          const tktInfo = Array.isArray(regInfo.tickets) && regInfo.tickets.length > 0 ? regInfo.tickets[0] : null;
+          const newTicket: DigitalTicket = {
+            id: tktInfo?.id || crypto.randomUUID(),
+            ticketNumber: tktInfo?.ticket_number || `TKT-P2P-${regInfo.registration_number.slice(-6)}`,
+            registrationNumber: regInfo.registration_number,
+            participantName: profileByRoll.full_name,
+            rollNumber: profileByRoll.roll_number,
+            branch: profileByRoll.branch,
+            year: profileByRoll.year,
+            eventName: `${db.eventConfig.name} – ${db.eventConfig.subtitle}`,
+            date: db.eventConfig.displayDate,
+            time: db.eventConfig.time,
+            venue: db.eventConfig.venue,
+            qrToken: tktInfo?.qr_token || generateTicketToken(),
+            isIsteMember: Boolean(profileByRoll.is_iste_member),
+            attendanceStatus: "pending",
+            createdAt: profileByRoll.created_at || new Date().toISOString(),
+          };
+          if (!db.tickets.some((existing) => existing.registrationNumber === newTicket.registrationNumber)) {
+            db.tickets.push(newTicket);
+          }
+          return newTicket;
+        }
+      } catch (err) {
+        console.error("Supabase getTicketAsync query error:", err);
+      }
+    }
+
+    return undefined;
+  },
+
   getTicketByUserId(userId: string): DigitalTicket | undefined {
     const reg = db.registrations.find((r) => r.userId === userId);
     if (!reg) return undefined;
@@ -751,28 +889,156 @@ export const dbService = {
   },
 
   // Certificates
+  getCertificates(): CertificateItem[] {
+    return db.certificates;
+  },
+  async getCertificatesAsync(): Promise<CertificateItem[]> {
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data, error } = await sb.from("certificates").select("*, participant_profiles(*)");
+        if (!error && data && data.length > 0) {
+          for (const item of data) {
+            if (!db.certificates.some((c) => c.certificateNumber === item.certificate_number)) {
+              const prof = item.participant_profiles;
+              db.certificates.push({
+                id: item.id,
+                certificateNumber: item.certificate_number,
+                participantId: item.participant_id,
+                participantName: prof ? prof.full_name : "Participant",
+                rollNumber: prof?.roll_number,
+                branch: prof?.branch,
+                email: prof?.email,
+                eventName: db.eventConfig.name,
+                issueDate: "11 April 2026",
+                verificationCode: item.verification_code || `VER-${item.id.slice(0, 8).toUpperCase()}`,
+                pdfUrl: item.pdf_url,
+                isPublished: Boolean(item.is_published),
+                createdAt: item.created_at,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Supabase getCertificatesAsync error:", err);
+      }
+    }
+    return db.certificates;
+  },
   getCertificateByRollNumber(rollNumber: string): CertificateItem | undefined {
     const profile = this.getProfileByRollNumber(rollNumber);
     if (!profile) return undefined;
-    return db.certificates.find((c) => c.participantId === profile.id);
+    return db.certificates.find((c) => c.participantId === profile.id || c.rollNumber?.toUpperCase() === rollNumber.toUpperCase());
+  },
+  async getCertificateAsync(idOrNum: string): Promise<CertificateItem | undefined> {
+    const query = idOrNum.trim().toUpperCase();
+
+    // 1. Check in-memory store
+    const local = db.certificates.find(
+      (c) =>
+        c.certificateNumber.toUpperCase() === query ||
+        c.id === idOrNum ||
+        c.verificationCode.toUpperCase() === query ||
+        c.rollNumber?.toUpperCase() === query
+    );
+    if (local) return local;
+
+    // 2. Query Supabase
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        const { data } = await sb
+          .from("certificates")
+          .select("*, participant_profiles(*)")
+          .or(`certificate_number.ilike.${idOrNum},verification_code.ilike.${idOrNum},id.eq.${idOrNum}`)
+          .maybeSingle();
+
+        if (data) {
+          const prof = data.participant_profiles;
+          const cert: CertificateItem = {
+            id: data.id,
+            certificateNumber: data.certificate_number,
+            participantId: data.participant_id,
+            participantName: prof ? prof.full_name : "Participant",
+            rollNumber: prof?.roll_number,
+            branch: prof?.branch,
+            email: prof?.email,
+            eventName: "Prompt to Production – Paytm AI Workshop",
+            issueDate: "11 April 2026",
+            verificationCode: data.verification_code,
+            isPublished: Boolean(data.is_published),
+            createdAt: data.created_at,
+          };
+          if (!db.certificates.some((c) => c.certificateNumber === cert.certificateNumber)) {
+            db.certificates.push(cert);
+          }
+          return cert;
+        }
+      } catch (err) {
+        console.error("Supabase getCertificateAsync error:", err);
+      }
+    }
+    return undefined;
   },
   issueCertificate(participantId: string): CertificateItem {
     const profile = db.profiles.find((p) => p.id === participantId);
     const existing = db.certificates.find((c) => c.participantId === participantId);
     if (existing) return existing;
 
+    const certId = crypto.randomUUID();
+    const certSuffix = Math.floor(1000 + Math.random() * 9000);
+    const certNumber = `NBKRIST-P2P-2026-${certSuffix}`;
+    const verificationCode = `VER-${crypto.randomUUID().substring(0, 8).toUpperCase()}`;
+
     const cert: CertificateItem = {
-      id: `cert_${Date.now()}`,
-      certificateNumber: `NBKRIST-P2P-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      id: certId,
+      certificateNumber: certNumber,
       participantId,
       participantName: profile ? profile.fullName : "Participant",
+      rollNumber: profile?.rollNumber,
+      branch: profile?.branch,
+      email: profile?.email,
       eventName: db.eventConfig.name,
-      issueDate: "30 September 2026",
-      verificationCode: `VER-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+      issueDate: "11 April 2026",
+      verificationCode,
       isPublished: true,
+      createdAt: new Date().toISOString(),
     };
     db.certificates.push(cert);
+
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      sb.from("certificates").insert({
+        id: certId,
+        certificate_number: certNumber,
+        participant_id: participantId,
+        verification_code: verificationCode,
+        is_published: true,
+      }).then(({ error }: { error: unknown }) => {
+        if (error) console.error("Supabase cert sync error:", error);
+      });
+    }
+
     return cert;
+  },
+  async generateAllCertificates(): Promise<{ generated: number; certificates: CertificateItem[] }> {
+    let count = 0;
+    for (const p of db.profiles) {
+      const already = db.certificates.some((c) => c.participantId === p.id);
+      if (!already) {
+        this.issueCertificate(p.id);
+        count++;
+      }
+    }
+    return { generated: count, certificates: db.certificates };
+  },
+  markCertificateEmailed(certificateId: string): boolean {
+    const cert = db.certificates.find((c) => c.id === certificateId || c.certificateNumber === certificateId);
+    if (cert) {
+      cert.emailedAt = new Date().toISOString();
+      return true;
+    }
+    return false;
   },
 
   // Admin stats
