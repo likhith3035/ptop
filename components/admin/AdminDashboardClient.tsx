@@ -39,7 +39,10 @@ import {
   Check,
   Edit2,
   UserPlus,
-  X
+  X,
+  Trash2,
+  AlertTriangle,
+  KeyRound
 } from "lucide-react";
 import { QrScanner } from "@/components/coordinator/QrScanner";
 
@@ -72,8 +75,8 @@ export function AdminDashboardClient({
   eventConfig: initialConfig,
   stats: initialStats,
   tickets: initialTickets,
-  profiles,
-  registrations,
+  profiles: initialProfiles = [],
+  registrations: initialRegistrations = [],
   payments,
   teams,
   submissions: initialSubmissions,
@@ -84,6 +87,12 @@ export function AdminDashboardClient({
   const [activeTab, setActiveTab] = useState<
     "overview" | "scanner" | "participants" | "payments" | "event" | "coordinators" | "announcements" | "submissions" | "certificates"
   >("overview");
+
+  // Core Data State
+  const [profiles, setProfiles] = useState<ParticipantProfile[]>(initialProfiles);
+  const [registrations, setRegistrations] = useState<Registration[]>(initialRegistrations);
+  const [tickets, setTickets] = useState<DigitalTicket[]>(initialTickets);
+  const [stats, setStats] = useState(initialStats);
 
   // Event Config Form State
   const [config, setConfig] = useState<EventConfig>(initialConfig);
@@ -102,8 +111,7 @@ export function AdminDashboardClient({
   const [annPriority, setAnnPriority] = useState<"normal" | "urgent">("normal");
   const [isPostingAnn, setIsPostingAnn] = useState(false);
 
-  // Tickets state
-  const [tickets, setTickets] = useState<DigitalTicket[]>(initialTickets);
+  // Submissions State
   const [submissions] = useState<ProjectSubmission[]>(initialSubmissions);
 
   // Certificates State
@@ -130,6 +138,74 @@ export function AdminDashboardClient({
     fullName: "", rollNumber: "", branch: "IT", year: "2nd Year", email: "", mobile: "", section: "A"
   });
   const [isAddingManual, setIsAddingManual] = useState(false);
+
+  // Delete Modal State & Logic (Password required: "delete")
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    mode: "all" | "single";
+    targetId?: string;
+    targetName?: string;
+    targetRoll?: string;
+  }>({
+    isOpen: false,
+    mode: "all",
+  });
+  const [deletePasswordInput, setDeletePasswordInput] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
+
+  const executeDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (deletePasswordInput.trim() !== "delete") {
+      setDeleteError("Incorrect password! You must type 'delete' to proceed.");
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/admin/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: deletePasswordInput.trim(),
+          mode: deleteModal.mode,
+          participantId: deleteModal.targetId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setDeleteError(data.error || "Failed to execute deletion.");
+      } else {
+        setDeleteSuccess(data.message || "Deletion successful.");
+        if (deleteModal.mode === "all") {
+          setProfiles([]);
+          setTickets([]);
+          setRegistrations([]);
+          setCertificates([]);
+          if (data.stats) setStats(data.stats);
+        } else if (deleteModal.mode === "single" && deleteModal.targetId) {
+          const id = deleteModal.targetId;
+          const roll = deleteModal.targetRoll?.toUpperCase();
+          setProfiles((prev) => prev.filter((p) => p.id !== id && p.rollNumber.toUpperCase() !== roll));
+          setTickets((prev) => prev.filter((t) => t.id !== id && t.rollNumber.toUpperCase() !== roll));
+          setRegistrations((prev) => prev.filter((r) => r.participantId !== id));
+          setCertificates((prev) => prev.filter((c) => c.participantId !== id && c.rollNumber?.toUpperCase() !== roll));
+          if (data.stats) setStats(data.stats);
+        }
+        setTimeout(() => {
+          setDeleteModal({ isOpen: false, mode: "all" });
+          setDeletePasswordInput("");
+          setDeleteSuccess(null);
+        }, 1000);
+      }
+    } catch {
+      setDeleteError("Network error while trying to delete.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Filtered Participants
   const filteredTickets = tickets.filter((t) => {
@@ -423,7 +499,7 @@ export function AdminDashboardClient({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+        <div className="flex items-center gap-2.5 self-start sm:self-auto flex-wrap">
           <button
             onClick={() => setActiveTab("scanner")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#002970] to-[#0056D2] hover:opacity-90 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
@@ -434,10 +510,27 @@ export function AdminDashboardClient({
 
           <button
             onClick={exportToCSV}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-semibold shadow-xs transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-semibold shadow-xs transition-all cursor-pointer"
           >
             <Download className="w-4 h-4 text-[#0056D2]" />
-            <span>Export Attendee Registry (CSV)</span>
+            <span>Export CSV</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteSuccess(null);
+              setDeletePasswordInput("");
+              setDeleteModal({
+                isOpen: true,
+                mode: "all",
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 hover:border-rose-300 text-rose-700 text-xs font-bold shadow-xs transition-all cursor-pointer"
+            title="Wipe all attendee data with password confirmation"
+          >
+            <Trash2 className="w-4 h-4 text-rose-600" />
+            <span>Delete All Data</span>
           </button>
 
           <a
@@ -454,25 +547,25 @@ export function AdminDashboardClient({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Registered</span>
-          <div className="text-2xl font-black text-slate-900 mt-1">{initialStats.totalRegistrations}</div>
+          <div className="text-2xl font-black text-slate-900 mt-1">{stats.totalRegistrations}</div>
           <span className="text-[11px] text-slate-500">Cap: {config.expectedParticipants}</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600">ISTE Members</span>
-          <div className="text-2xl font-black text-amber-600 mt-1">{initialStats.isteParticipants}</div>
+          <div className="text-2xl font-black text-amber-600 mt-1">{stats.isteParticipants}</div>
           <span className="text-[11px] text-slate-500">₹{config.isteFee} fee tier</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Non-ISTE</span>
-          <div className="text-2xl font-black text-slate-800 mt-1">{initialStats.nonIsteParticipants}</div>
+          <div className="text-2xl font-black text-slate-800 mt-1">{stats.nonIsteParticipants}</div>
           <span className="text-[11px] text-slate-500">₹{config.nonIsteFee} fee tier</span>
         </div>
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Checked In</span>
-          <div className="text-2xl font-black text-emerald-600 mt-1">{initialStats.checkedInParticipants}</div>
+          <div className="text-2xl font-black text-emerald-600 mt-1">{stats.checkedInParticipants}</div>
           <span className="text-[11px] text-slate-500">At Seminar Hall</span>
         </div>
 
@@ -484,7 +577,7 @@ export function AdminDashboardClient({
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Total Revenue</span>
-          <div className="text-2xl font-black text-[#002970] mt-1">₹{initialStats.totalRevenue}</div>
+          <div className="text-2xl font-black text-[#002970] mt-1">₹{stats.totalRevenue}</div>
           <span className="text-[11px] text-emerald-600 font-semibold">100% Reconciled</span>
         </div>
       </div>
@@ -696,6 +789,23 @@ export function AdminDashboardClient({
                   <option value="CHECKED_IN">Checked In</option>
                   <option value="PENDING">Pending Check-in</option>
                 </select>
+
+                <button
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteSuccess(null);
+                    setDeletePasswordInput("");
+                    setDeleteModal({
+                      isOpen: true,
+                      mode: "all",
+                    });
+                  }}
+                  className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 font-bold text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                  title="Permanently wipe all participants"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete All</span>
+                </button>
               </div>
             </div>
           </div>
@@ -712,12 +822,13 @@ export function AdminDashboardClient({
                   <th className="p-3.5">ISTE Status</th>
                   <th className="p-3.5">Attendance</th>
                   <th className="p-3.5 text-right">Ticket</th>
+                  <th className="p-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredTickets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-10 text-center text-slate-400">
+                    <td colSpan={8} className="p-10 text-center text-slate-400">
                       <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                       <p className="font-semibold text-slate-700 text-xs">No Registered Participants Found</p>
                       <p className="text-[11px] text-slate-400 mt-1">
@@ -753,6 +864,27 @@ export function AdminDashboardClient({
                         )}
                       </td>
                       <td className="p-3.5 text-right font-mono text-slate-500">{t.ticketNumber}</td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          onClick={() => {
+                            setDeleteError(null);
+                            setDeleteSuccess(null);
+                            setDeletePasswordInput("");
+                            setDeleteModal({
+                              isOpen: true,
+                              mode: "single",
+                              targetId: t.id,
+                              targetName: t.participantName,
+                              targetRoll: t.rollNumber,
+                            });
+                          }}
+                          className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors inline-flex items-center gap-1 font-semibold text-[11px] cursor-pointer"
+                          title={`Delete ${t.participantName}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Delete</span>
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -1032,6 +1164,23 @@ export function AdminDashboardClient({
                 {isSendingEmails ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 <span>Email All</span>
               </button>
+
+              <button
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteSuccess(null);
+                  setDeletePasswordInput("");
+                  setDeleteModal({
+                    isOpen: true,
+                    mode: "all",
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 font-bold text-xs shadow-xs transition-all cursor-pointer"
+                title="Wipe all attendee data"
+              >
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>Delete All</span>
+              </button>
             </div>
           </div>
 
@@ -1270,6 +1419,26 @@ export function AdminDashboardClient({
                                     <span>Issue</span>
                                   </button>
                                 )}
+
+                                {/* 🗑️ Delete Participant Button */}
+                                <button
+                                  onClick={() => {
+                                    setDeleteError(null);
+                                    setDeleteSuccess(null);
+                                    setDeletePasswordInput("");
+                                    setDeleteModal({
+                                      isOpen: true,
+                                      mode: "single",
+                                      targetId: p.id,
+                                      targetName: p.fullName,
+                                      targetRoll: p.rollNumber,
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                                  title={`Delete ${p.fullName} and certificate`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -1396,6 +1565,123 @@ export function AdminDashboardClient({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* 🔴 DELETE CONFIRMATION MODAL WITH PASSWORD CHECK ("delete")     */}
+      {/* ============================================================= */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-rose-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {deleteModal.mode === "all"
+                      ? "Delete All Event Data"
+                      : `Delete: ${deleteModal.targetName || "Participant"}`}
+                  </h3>
+                  <p className="text-[11px] text-rose-600 font-medium">
+                    Permanent Deletion • Irreversible Action
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteModal({ isOpen: false, mode: "all" })}
+                className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Warning Description */}
+            <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 text-xs leading-relaxed space-y-1">
+              {deleteModal.mode === "all" ? (
+                <p>
+                  <strong>Are you sure you want to delete ALL event data?</strong> This will permanently erase every registered student profile, admission ticket, payment record, gate attendance, and certificate from Supabase and the server database.
+                </p>
+              ) : (
+                <p>
+                  Are you sure you want to permanently delete <strong>{deleteModal.targetName}</strong> {deleteModal.targetRoll ? `(${deleteModal.targetRoll})` : ""}? Their profile, admission pass, and certificate will be wiped immediately.
+                </p>
+              )}
+            </div>
+
+            {/* Password Input Form */}
+            <form onSubmit={executeDelete} className="space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Confirmation Password</span>
+                  </label>
+                  <span className="text-[11px] font-mono font-bold text-rose-600 bg-rose-100/70 px-2 py-0.5 rounded">
+                    Password: delete
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  value={deletePasswordInput}
+                  onChange={(e) => {
+                    setDeletePasswordInput(e.target.value);
+                    setDeleteError(null);
+                  }}
+                  placeholder="Type 'delete' to confirm"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 focus:border-rose-400 placeholder:text-slate-400 placeholder:font-sans"
+                />
+              </div>
+
+              {deleteError && (
+                <div className="p-3 rounded-xl bg-rose-100 text-rose-800 text-xs font-semibold border border-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              {deleteSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                  <span>{deleteSuccess}</span>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setDeleteModal({ isOpen: false, mode: "all" })}
+                  disabled={isDeleting}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeleting || deletePasswordInput.trim() !== "delete"}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirm Deletion</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

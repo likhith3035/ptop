@@ -1224,5 +1224,129 @@ export const dbService = {
       totalRevenue,
       capacity: db.eventConfig.expectedParticipants,
     };
-  }
+  },
+
+  // Delete an individual participant across in-memory state and Supabase
+  async deleteParticipant(identifier: string): Promise<boolean> {
+    const clean = identifier.trim().toUpperCase();
+    const profile = db.profiles.find(
+      (p) => p.id === identifier || p.rollNumber.toUpperCase() === clean
+    );
+
+    let targetRoll = clean;
+    let targetProfileId = identifier;
+    let targetUserId = "";
+
+    if (profile) {
+      targetRoll = profile.rollNumber.toUpperCase();
+      targetProfileId = profile.id;
+      targetUserId = profile.userId;
+    } else {
+      const ticket = db.tickets.find(
+        (t) =>
+          t.id === identifier ||
+          t.rollNumber.toUpperCase() === clean ||
+          t.registrationNumber.toUpperCase() === clean
+      );
+      if (ticket) {
+        targetRoll = ticket.rollNumber.toUpperCase();
+        targetProfileId = ticket.id;
+      }
+    }
+
+    // 1. Remove from in-memory arrays
+    db.profiles = db.profiles.filter(
+      (p) => p.id !== targetProfileId && p.rollNumber.toUpperCase() !== targetRoll
+    );
+
+    const removedRegNumbers: string[] = [];
+    const removedRegIds: string[] = [];
+    db.registrations = db.registrations.filter((r) => {
+      const match =
+        r.participantId === targetProfileId ||
+        (targetUserId && r.userId === targetUserId);
+      if (match) {
+        removedRegNumbers.push(r.registrationNumber);
+        removedRegIds.push(r.id);
+        return false;
+      }
+      return true;
+    });
+
+    db.tickets = db.tickets.filter(
+      (t) =>
+        t.rollNumber.toUpperCase() !== targetRoll &&
+        !removedRegNumbers.includes(t.registrationNumber) &&
+        t.id !== targetProfileId
+    );
+
+    db.certificates = db.certificates.filter(
+      (c) =>
+        c.participantId !== targetProfileId &&
+        c.rollNumber?.toUpperCase() !== targetRoll
+    );
+
+    db.payments = db.payments.filter(
+      (p) =>
+        !removedRegIds.includes(p.registrationId) &&
+        (!targetUserId || p.userId !== targetUserId)
+    );
+
+    if (targetUserId) {
+      db.submissions = db.submissions.filter((s) => s.userId !== targetUserId);
+      db.teams = db.teams.filter((tm) => tm.leaderId !== targetUserId);
+    }
+
+    // 2. Remove from Supabase
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      try {
+        await sb.from("certificates").delete().eq("participant_id", targetProfileId);
+        await sb.from("tickets").delete().eq("participant_id", targetProfileId);
+        if (targetUserId) {
+          await sb.from("payments").delete().eq("user_id", targetUserId);
+        }
+        await sb.from("registrations").delete().eq("participant_id", targetProfileId);
+        await sb.from("participant_profiles").delete().eq("id", targetProfileId);
+        await sb.from("participant_profiles").delete().eq("roll_number", targetRoll);
+      } catch (err) {
+        console.error("Supabase single deletion error:", err);
+      }
+    }
+
+    return true;
+  },
+
+  // Permanently delete all participant registrations, tickets, payments, and certificates
+  async deleteAllData(): Promise<void> {
+    // 1. Wipe in-memory store
+    db.profiles = [];
+    db.registrations = [];
+    db.payments = [];
+    db.tickets = [];
+    db.certificates = [];
+    db.submissions = [];
+    db.teams = [];
+    db.supportTickets = [];
+
+    // 2. Wipe Supabase tables
+    const sb = getSupabaseAdmin();
+    if (sb) {
+      const nil = "00000000-0000-0000-0000-000000000000";
+      try {
+        await sb.from("certificates").delete().neq("id", nil);
+        await sb.from("attendance").delete().neq("id", nil);
+        await sb.from("tickets").delete().neq("id", nil);
+        await sb.from("payments").delete().neq("id", nil);
+        await sb.from("registrations").delete().neq("id", nil);
+        await sb.from("submissions").delete().neq("id", nil);
+        await sb.from("team_members").delete().neq("id", nil);
+        await sb.from("teams").delete().neq("id", nil);
+        await sb.from("support_tickets").delete().neq("id", nil);
+        await sb.from("participant_profiles").delete().neq("id", nil);
+      } catch (err) {
+        console.error("Supabase bulk wipe error:", err);
+      }
+    }
+  },
 };
